@@ -32,11 +32,30 @@
     back as itself.
 
     {b What a description is} is {!Shape}, public and walked by the decoder, the
-    encoder and {!Schema}, which prints JSON Schema and zod from it. *)
+    encoder and {!Schema}, which prints JSON Schema and zod from it.
 
-module Value = Value
+    {b A description that can mean nothing} -- a [multiple_of] that is not
+    positive, two values written as one word, a member described twice, an
+    object with two unions -- raises [Invalid_argument] where it is built, as
+    each function below says: a description is a constant written in source, so
+    the mistake is found when the program starts, or in its first test, and
+    never on a request. *)
+
+(** Any JSON value, and its description. *)
+module Value : sig
+  include module type of struct
+    include Value
+  end
+
+  val json : t Shape.t
+  (** Any JSON. It says nothing of its shape, and a schema says so. Its name is
+      the one [[@@deriving wiretype]] writes for any [M.t], so a field typed
+      [Wiretype.Value.t], or by any alias of it, is described by it. *)
+end
+
 module Text = Text
 module Problem = Problem
+module Unwritable = Unwritable
 module Shape = Shape
 module Schema = Schema
 
@@ -47,11 +66,16 @@ type 'a t = 'a Shape.t
 val decode : ?max_depth:int -> 'a t -> string -> ('a, Problem.t list) result
 (** [max_depth] is how deep the document may nest, 512 unless given. *)
 
-val encode : 'a t -> 'a -> (string, string) result
-(** [Error] says what could not be written: a description made only to read, a
-    value its kind cannot spell. *)
+val encode : 'a t -> 'a -> (string, Unwritable.t) result
+(** [Error] is the first place that could not be written, and why: a description
+    made only to read, a value its kind cannot spell, or what would make a
+    document {!decode} refuses -- text that is not UTF-8, a member or a map's
+    name written twice, nesting past 512. What [encode] writes, [decode] reads.
+*)
 
-val to_value : 'a t -> 'a -> (Value.t, string) result
+val to_value : 'a t -> 'a -> (Value.t, Unwritable.t) result
+(** The value as the JSON {!encode} writes for it. *)
+
 val of_value : 'a t -> Value.t -> ('a, Problem.t list) result
 
 val name : 'a t -> string
@@ -68,15 +92,21 @@ val bool : bool t
 val int : int t
 (** A whole number, read from its digits. A number written with a fraction that
     is whole -- [2.0], [1e3] -- is one, as JSON Schema's [integer] is, up to
-    2{^ 53}, past which a fraction's digits are not exact. *)
+    2{^ 53}, past which a fraction's digits are not exact. A JavaScript client
+    holds an integer exactly only up to 2{^ 53}, and zod's [z.int()] refuses one
+    past it: an id that may be larger travels as text, through {!kind}. *)
 
 val int_bounded : ?min:int -> ?max:int -> ?multiple_of:int -> unit -> int t
-(** Checked while reading, and stated in the schema. *)
+(** Checked while reading, and stated in the schema. Raises [Invalid_argument]
+    where [multiple_of] is not positive. *)
 
 val int64 : int64 t
+(** As {!int}, to 2{^ 63}: past 2{^ 53}, a JavaScript client can neither hold it
+    exactly nor pass zod's check. *)
 
 val int64_bounded :
   ?min:int64 -> ?max:int64 -> ?multiple_of:int64 -> unit -> int64 t
+(** Raises [Invalid_argument] where [multiple_of] is not positive. *)
 
 val number : float t
 (** A JSON number, as a double; one that overflows a double is too large. A
@@ -91,7 +121,10 @@ val number_bounded :
   unit ->
   float t
 (** [min] and [max] are at least and at most; [above] and [below] greater and
-    less than. *)
+    less than. [multiple_of] is decided as zod's [multipleOf] decides it -- the
+    quotient a whole number to within a few rounding errors -- so [19.99] is a
+    multiple of [0.01]. Raises [Invalid_argument] where [multiple_of] is not a
+    positive finite number. *)
 
 val string : string t
 (** Text, checked as UTF-8. *)
@@ -101,7 +134,8 @@ val string_bounded : ?min_length:int -> ?max_length:int -> unit -> string t
 
 val enum : ?kind:string -> ?doc:string -> ('a -> string) -> 'a list -> 'a t
 (** [enum word values]: each value written as its word, and read from it. Its
-    words are in the schema, exactly. *)
+    words are in the schema, exactly. Raises [Invalid_argument] where two values
+    have one word. *)
 
 (** {1 Ready-made kinds}
 
@@ -113,7 +147,9 @@ val instant : int t
 (** Epoch milliseconds, as RFC 3339 [date-time]: [2026-09-30T12:00:00.000Z],
     read with any fraction and offset -- a fraction past the millisecond is
     dropped -- and written in UTC with milliseconds, so one instant has one
-    spelling. A leap second is refused. *)
+    spelling. A leap second is refused, and so is an instant that is outside the
+    years 0000 to 9999 once in UTC -- [9999-12-31T23:59:59-01:00] -- since it
+    could not be written back. *)
 
 val date : (int * int * int) t
 (** [(year, month, day)], as RFC 3339 [full-date]: [2026-09-30]. *)
@@ -121,9 +157,9 @@ val date : (int * int * int) t
 val duration : int t
 (** Milliseconds, as ISO 8601: [PT1H30M]. Weeks, or days, hours, minutes and
     seconds; never years or months, which are no number of milliseconds. A day
-    is 24 hours. *)
+    is 24 hours, and one past a hundred thousand years is refused. *)
 
-val uuid : ?version:int -> unit -> string t
+val uuid : ?version:Shape.uuid_version -> unit -> string t
 (** RFC 9562, lower-cased: versions 1 to 8, with the nil and the max UUID, or
     the one version asked for. *)
 
@@ -191,9 +227,6 @@ end
 val nullable : 'a t -> 'a option t
 (** The description, or [null] for [None]. *)
 
-val value : Value.t t
-(** Any JSON. It says nothing of its shape, and a schema says so. *)
-
 val rec' : 'a t Lazy.t -> 'a t
 (** A description of itself. *)
 
@@ -253,8 +286,7 @@ module Object : sig
     ?absent:'a ->
     ?omit:('a -> bool) ->
     ?enc:('o -> 'a) ->
-    ?read_only:bool ->
-    ?write_only:bool ->
+    ?access:Shape.access ->
     ?deprecated:bool ->
     ?examples:'a list ->
     string ->
@@ -264,20 +296,23 @@ module Object : sig
   (** A member. Without [absent] it is required; with it, it may be left out and
       reads as [absent]. [omit] says which values are written by leaving it out.
       [enc] is how it is found in a value; without it the object only reads.
-      [read_only] leaves it out of a request's schema and [write_only] out of an
-      answer's. *)
+      [`Read_only] leaves it out of a request's schema and [`Write_only] out of
+      an answer's. *)
 
   val opt_mem :
     ?doc:string ->
     ?enc:('o -> 'a option) ->
+    ?access:Shape.access ->
     ?deprecated:bool ->
+    ?examples:'a list ->
     string ->
     'a t ->
     ('o, 'a option -> 'b) map ->
     ('o, 'b) map
   (** A member that may be left out: absent or [null] reads as [None], since
       clients write both for "nothing", and [None] is written by leaving it out.
-  *)
+      [access], [deprecated] and [examples] are {!mem}'s; an example is a value
+      the member holds when it is there. *)
 
   val case_mem :
     ?doc:string ->
@@ -298,6 +333,11 @@ module Object : sig
   (** A member it does not describe is a problem; by default it is skipped. *)
 
   val finish : ('o, 'o) map -> 'o t
+  (** Raises [Invalid_argument] where a member's name is given twice -- among
+      the object's members, its union's tag, and each case's members -- where
+      two cases' tags are written alike or one cannot be written, or where the
+      object has two unions: the tag is read before the members it decides, so
+      an object has one. *)
 
   (** The cases of a union. *)
   module Case : sig
@@ -306,8 +346,8 @@ module Object : sig
     val map : ?dec:('k -> 'c) -> 'tag -> 'k t -> ('c, 'k, 'tag) map
     (** [map tag object ~dec]: the case [tag] stands for, whose members are
         [object]'s. Without [dec] it is written and never read. Raises
-        [Invalid_argument] where [object] is not one: a case is a constant
-        written in source. *)
+        [Invalid_argument] where [object] is not one, or has a union of its own.
+    *)
 
     val make : ('c, 'k, 'tag) map -> ('c, 'tag) Shape.case
     val value : ('c, 'k, 'tag) map -> 'k -> ('c, 'tag) Shape.case_value

@@ -1,8 +1,7 @@
 (* A double's shortest digits, by Raffaello Giulietti's Schubfach: the
    fewest decimal digits that read back as the double, and of those the
    nearest to it -- found with three 126-bit products against a table of
-   powers of ten, where formatting digits and parsing them back to check
-   was most of what a number cost to write. *)
+   powers of ten, so no digits are formatted and parsed back to be checked. *)
 
 let c_min = 1 lsl 52
 let q_min = -1074
@@ -81,17 +80,16 @@ let shortest f =
   let bits = Int64.bits_of_float f in
   let t = Int64.to_int (Int64.logand bits 0xF_FFFF_FFFF_FFFFL) in
   let bq = Int64.to_int (Int64.shift_right_logical bits 52) land 0x7FF in
-  if bq <> 0 then
+  if bq = 0 then
+    (* The two smallest doubles, whose one digit the algorithm keeps a second
+       beside, as a printer of two digits at least would: their shortest are
+       5e-324 and 1e-323. *)
+    if t = 1 then (5, -324) else if t = 2 then (1, -323) else decimal q_min t 0
+  else
     let mq = 1075 - bq in
     let c = c_min lor t in
     if 0 < mq && mq < 53 && (c lsr mq) lsl mq = c then (c lsr mq, 0)
     else decimal (-mq) c 0
-    (* The two smallest doubles, whose one digit the algorithm keeps a second
-     beside, as a printer of two digits at least would: their shortest are
-     5e-324 and 1e-323. *)
-  else if t = 1 then (5, -324)
-  else if t = 2 then (1, -323)
-  else decimal q_min t 0
 
 (* The digits laid out as [%g] lays them out: fixed where the first digit's
    exponent is from -4 to one short of the precision -- sixteen digits, or
@@ -133,24 +131,25 @@ let spelled x =
     end;
     Buffer.contents b
 
+(* An integer below 2^53 is exact, so its digits are its shortest spelling,
+   and need no search for them. [-0] keeps the sign its digits would drop. *)
+let exact_integer f =
+  Float.is_integer f
+  && Float.abs f < 0x1p53
+  && not (Float.sign_bit f && Float.equal f 0.)
+
 let number b f =
   if not (Float.is_finite f) then Buffer.add_string b "null"
-    (* An integer below 2^53 is exact, and its digits are the shortest
-       spelling there is. Most numbers in a document are one, and formatting
-       is most of what writing one costs. [-0] keeps its sign. *)
-  else if
-    Float.is_integer f
-    && Float.abs f < 0x1p53
-    && not (Float.sign_bit f && Float.equal f 0.)
-  then Buffer.add_string b (string_of_int (Float.to_int f))
+  else if exact_integer f then
+    Buffer.add_string b (string_of_int (Float.to_int f))
   else Buffer.add_string b (spelled f)
 
 let escaped = function
   | '"' | '\\' | '\x00' .. '\x1F' | '\x7F' -> true
   | _ -> false
 
-(* The text between escapes is written a run at a time: most strings have
-   none, and a byte at a time was most of what writing one cost. *)
+(* The text between escapes is written a run at a time, since most strings
+   have none. *)
 let string b s =
   let n = String.length s in
   Buffer.add_char b '"';

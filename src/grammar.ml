@@ -57,7 +57,11 @@ let date_of_days z =
   ((if m <= 2 then y + 1 else y), m, d)
 
 let date_at s i =
-  if i + 10 > String.length s || s.[i + 4] <> '-' || s.[i + 7] <> '-' then None
+  if
+    i + 10 > String.length s
+    || (not (Char.equal s.[i + 4] '-'))
+    || not (Char.equal s.[i + 7] '-')
+  then None
   else
     let y = fixed s i 4 and m = fixed s (i + 5) 2 and d = fixed s (i + 8) 2 in
     if y < 0 || m < 1 || m > 12 || d < 1 || d > days_in_month y m then None
@@ -78,6 +82,12 @@ let date_to_string (y, m, d) =
 
 let day_ms = 86_400_000
 
+(* The instants that are written as RFC 3339 has them, in UTC: the years
+   0000 to 9999. One read with an offset that carries it past either end is
+   refused, so whatever is read can be written back. *)
+let first_instant = days_of_date 0 1 1 * day_ms
+let last_instant = (days_of_date 10000 1 1 * day_ms) - 1
+
 let not_an_instant =
   "This must be an instant written as RFC 3339 has it, like \
    2026-09-30T12:00:00Z."
@@ -88,8 +98,12 @@ let instant_of_string s =
   match date_at s 0 with
   | None -> Error not_an_instant
   | Some (y, mo, d) -> (
-      if n < 20 || s.[10] <> 'T' || s.[13] <> ':' || s.[16] <> ':' then
-        Error not_an_instant
+      if
+        n < 20
+        || (not (Char.equal s.[10] 'T'))
+        || (not (Char.equal s.[13] ':'))
+        || not (Char.equal s.[16] ':')
+      then Error not_an_instant
       else
         let h = clock 11 and mi = clock 14 and sec = clock 17 in
         if h < 0 || h > 23 || mi < 0 || mi > 59 || sec < 0 || sec > 59 then
@@ -98,7 +112,7 @@ let instant_of_string s =
           (* A fraction is read to the millisecond and the rest dropped,
              which for a fraction is toward the past. *)
           let i, ms =
-            if n > 19 && s.[19] = '.' then (
+            if n > 19 && Char.equal s.[19] '.' then (
               let j = ref 20 in
               while !j < n && digit s.[!j] do
                 incr j
@@ -113,31 +127,39 @@ let instant_of_string s =
           in
           let offset =
             if ms < 0 then None
-            else if i = n - 1 && s.[i] = 'Z' then Some 0
-            else if i = n - 6 && (s.[i] = '+' || s.[i] = '-') && s.[i + 3] = ':'
+            else if i = n - 1 && Char.equal s.[i] 'Z' then Some 0
+            else if
+              i = n - 6
+              && (Char.equal s.[i] '+' || Char.equal s.[i] '-')
+              && Char.equal s.[i + 3] ':'
             then
               let oh = clock (i + 1) and om = clock (i + 4) in
               if oh < 0 || oh > 23 || om < 0 || om > 59 then None
               else
                 let minutes = (oh * 60) + om in
-                Some (if s.[i] = '+' then minutes else -minutes)
+                Some (if Char.equal s.[i] '+' then minutes else -minutes)
             else None
           in
           match offset with
           | None -> Error not_an_instant
           | Some minutes ->
-              Ok
-                ((days_of_date y mo d * day_ms)
+              let t =
+                (days_of_date y mo d * day_ms)
                 + (((((h * 60) + mi) * 60) + sec) * 1000)
-                + ms - (minutes * 60_000)))
+                + ms - (minutes * 60_000)
+              in
+              if t < first_instant || t > last_instant then
+                Error
+                  "This instant is outside the years 0000 to 9999 once in UTC."
+              else Ok t)
 
 let instant_to_string t =
-  let days = if t >= 0 then t / day_ms else ((t + 1) / day_ms) - 1 in
-  let rest = t - (days * day_ms) in
-  let y, m, d = date_of_days days in
-  if y < 0 || y > 9999 then
+  if t < first_instant || t > last_instant then
     Error (Printf.sprintf "The instant %d is outside the years 0000 to 9999." t)
   else
+    let days = if t >= 0 then t / day_ms else ((t + 1) / day_ms) - 1 in
+    let rest = t - (days * day_ms) in
+    let y, m, d = date_of_days days in
     let ms = rest mod 1000 and secs = rest / 1000 in
     Ok
       (Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ" y m d (secs / 3600)
@@ -171,7 +193,7 @@ let duration_of_string s =
     else Some (int_of_string (String.sub s start (!i - start)))
   in
   let fraction () =
-    if !i < n && (s.[!i] = '.' || s.[!i] = ',') then (
+    if !i < n && (Char.equal s.[!i] '.' || Char.equal s.[!i] ',') then (
       incr i;
       let start = !i in
       while !i < n && digit s.[!i] do
@@ -185,12 +207,15 @@ let duration_of_string s =
     else Some 0
   in
   let designator c =
-    if !i < n && s.[!i] = c then (
+    if !i < n && Char.equal s.[!i] c then (
       incr i;
       true)
     else false
   in
   let fail = Error not_a_duration in
+  (* A part past the limit is held at one past it, so a product never
+     overflows and the sum of the four parts is still said to be too long. *)
+  let scaled v unit = if v > too_long / unit then too_long + 1 else v * unit in
   let total ms =
     if ms > too_long then Error "This duration is too long." else Ok ms
   in
@@ -204,7 +229,7 @@ let duration_of_string s =
         | None -> false
         | Some v ->
             if designator c then (
-              ms := !ms + (v * unit);
+              ms := !ms + scaled v unit;
               incr components;
               true)
             else (
@@ -221,7 +246,7 @@ let duration_of_string s =
             | None -> false
             | Some frac ->
                 if designator 'S' then (
-                  ms := !ms + (v * 1000) + frac;
+                  ms := !ms + scaled v 1000 + frac;
                   incr components;
                   true)
                 else false)
@@ -231,17 +256,18 @@ let duration_of_string s =
     then Some !ms
     else None
   in
-  if n < 2 || s.[0] <> 'P' then fail
-  else if s.[1] = 'T' then (
+  if n < 2 || not (Char.equal s.[0] 'P') then fail
+  else if Char.equal s.[1] 'T' then (
     incr i;
     match time () with Some ms when !i = n -> total ms | Some _ | None -> fail)
   else
     match number () with
     | None -> fail
     | Some v ->
-        if designator 'W' then if !i = n then total (v * 7 * day_ms) else fail
+        if designator 'W' then
+          if !i = n then total (scaled v (7 * day_ms)) else fail
         else if designator 'D' then
-          let days = v * day_ms in
+          let days = scaled v day_ms in
           if !i = n then total days
           else if designator 'T' then
             match time () with
@@ -252,6 +278,7 @@ let duration_of_string s =
 
 let duration_to_string ms =
   if ms < 0 then Error "A duration is never negative."
+  else if ms > too_long then Error "This duration is too long."
   else
     let days = ms / day_ms and rest = ms mod day_ms in
     let h = rest / 3_600_000
@@ -270,7 +297,7 @@ let duration_to_string ms =
         if frac > 0 then begin
           let f = Printf.sprintf "%03d" frac in
           let len = ref 3 in
-          while f.[!len - 1] = '0' do
+          while Char.equal f.[!len - 1] '0' do
             decr len
           done;
           Buffer.add_char b '.';
@@ -284,13 +311,23 @@ let duration_to_string ms =
 (* ------------------------------------------------------------------ *)
 (* UUIDs *)
 
+let uuid_version_number = function
+  | `V1 -> 1
+  | `V2 -> 2
+  | `V3 -> 3
+  | `V4 -> 4
+  | `V5 -> 5
+  | `V6 -> 6
+  | `V7 -> 7
+  | `V8 -> 8
+
 let not_a_uuid version =
   match version with
   | Some v ->
       Printf.sprintf
         "This must be a version %d UUID, like \
          01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d."
-        v
+        (uuid_version_number v)
   | None -> "This must be a UUID, like 01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d."
 
 let uuid_of_string ?version s =
@@ -298,7 +335,9 @@ let uuid_of_string ?version s =
     String.length s = 36
     && List.for_all Fun.id
          (List.init 36 (fun i ->
-              match i with 8 | 13 | 18 | 23 -> s.[i] = '-' | _ -> hex s.[i]))
+              match i with
+              | 8 | 13 | 18 | 23 -> Char.equal s.[i] '-'
+              | _ -> hex s.[i]))
   in
   let variant =
     shaped
@@ -315,7 +354,8 @@ let uuid_of_string ?version s =
     shaped
     &&
     match version with
-    | Some v -> Char.equal s.[14] (Char.chr (48 + v)) && variant
+    | Some v ->
+        Char.equal s.[14] (Char.chr (48 + uuid_version_number v)) && variant
     | None ->
         special
         || ((match s.[14] with '1' .. '8' -> true | _ -> false) && variant)
@@ -351,8 +391,9 @@ let base64_of_string ~url s =
   let body =
     if url then if n mod 4 = 1 then None else Some n
     else if n mod 4 <> 0 then None
-    else if n >= 2 && s.[n - 1] = '=' && s.[n - 2] = '=' then Some (n - 2)
-    else if n >= 1 && s.[n - 1] = '=' then Some (n - 1)
+    else if n >= 2 && Char.equal s.[n - 1] '=' && Char.equal s.[n - 2] '=' then
+      Some (n - 2)
+    else if n >= 1 && Char.equal s.[n - 1] '=' then Some (n - 1)
     else Some n
   in
   match body with
@@ -415,7 +456,7 @@ let ipv4 s =
        (fun p ->
          let n = String.length p in
          n >= 1 && n <= 3 && String.for_all digit p
-         && (n = 1 || p.[0] <> '0')
+         && (n = 1 || not (Char.equal p.[0] '0'))
          && int_of_string p <= 255)
        parts
 
@@ -440,7 +481,7 @@ let ipv6 ~dotted s =
   in
   let rec split_double i =
     if i + 1 >= String.length s then None
-    else if s.[i] = ':' && s.[i + 1] = ':' then Some i
+    else if Char.equal s.[i] ':' && Char.equal s.[i + 1] ':' then Some i
     else split_double (i + 1)
   in
   match split_double 0 with
@@ -452,9 +493,10 @@ let ipv6 ~dotted s =
       let clean part =
         not
           (String.length part > 0
-          && (part.[0] = ':' || part.[String.length part - 1] = ':'))
+          && (Char.equal part.[0] ':'
+             || Char.equal part.[String.length part - 1] ':'))
       in
-      if String.length right >= 1 && right.[0] = ':' then false
+      if String.length right >= 1 && Char.equal right.[0] ':' then false
       else if not (clean left && clean right) then false
       else
         match (groups left, groups right) with
@@ -488,13 +530,14 @@ let sub_delim c =
 let chars ok s i j =
   let rec go k =
     if k >= j then true
-    else if s.[k] = '%' then
+    else if Char.equal s.[k] '%' then
       k + 2 < j && hex s.[k + 1] && hex s.[k + 2] && go (k + 3)
     else ok s.[k] && go (k + 1)
   in
   go i
 
-let pchar c = unreserved c || sub_delim c || c = ':' || c = '@'
+let pchar c =
+  unreserved c || sub_delim c || Char.equal c ':' || Char.equal c '@'
 
 (* ------------------------------------------------------------------ *)
 (* Internationalised hosts *)
@@ -511,8 +554,11 @@ let in_ranges table x =
   in
   go 0 (Array.length table / 2)
 
-(* A code point's bidirectional class, as the generator numbers them: 0 L,
-   1 R, 2 AL, 3 AN, 4 EN, 5 ES, 6 CS, 7 ET, 8 ON, 9 BN, 10 NSM, 11 any other. *)
+(* The bidirectional classes RFC 5893 names, by Unicode's names for them. *)
+type bidi = L | R | AL | AN | EN | ES | CS | ET | ON | BN | NSM | Other
+
+(* A code point's class: the generator numbers them in the order above, and
+   one it does not list is L. *)
 let bidi_class x =
   let t = Idna_data.bidi in
   let rec go lo hi =
@@ -523,7 +569,19 @@ let bidi_class x =
       else if x > t.((3 * mid) + 1) then go (mid + 1) hi
       else t.((3 * mid) + 2)
   in
-  go 0 (Array.length t / 3)
+  match go 0 (Array.length t / 3) with
+  | 0 -> L
+  | 1 -> R
+  | 2 -> AL
+  | 3 -> AN
+  | 4 -> EN
+  | 5 -> ES
+  | 6 -> CS
+  | 7 -> ET
+  | 8 -> ON
+  | 9 -> BN
+  | 10 -> NSM
+  | _ -> Other
 
 (* A Punycode label's code points, RFC 3492 section 6.2, the label already
    lower-cased and past its [xn--]. [None] where it does not decode, or
@@ -620,22 +678,33 @@ let unicode_label cps =
 (* RFC 5893's rule, for each label of a host that has right-to-left text. *)
 let bidi_label cps =
   let cls = Array.map bidi_class cps in
-  let n = Array.length cls in
+  (* The last class that is not a mark's, which the rule's ends are judged
+     by. *)
   let rec last i =
-    if i < 0 then -1 else if cls.(i) = 10 then last (i - 1) else cls.(i)
+    if i < 0 then None
+    else match cls.(i) with NSM -> last (i - 1) | c -> Some c
   in
-  let only allowed = Array.for_all (fun c -> List.mem c allowed) cls in
-  n > 0
+  let all ok = Array.for_all ok cls in
+  let an = Array.exists (function AN -> true | _ -> false) cls
+  and en = Array.exists (function EN -> true | _ -> false) cls in
+  Array.length cls > 0
   &&
   match cls.(0) with
-  | 1 | 2 ->
-      only [ 1; 2; 3; 4; 5; 6; 7; 8; 9; 10 ]
-      && List.mem (last (n - 1)) [ 1; 2; 3; 4 ]
-      && not
-           (Array.exists (fun c -> c = 3) cls
-           && Array.exists (fun c -> c = 4) cls)
-  | 0 -> only [ 0; 4; 5; 6; 7; 8; 9; 10 ] && List.mem (last (n - 1)) [ 0; 4 ]
-  | _ -> false
+  | R | AL ->
+      all (function L | Other -> false | _ -> true)
+      && (match last (Array.length cls - 1) with
+        | Some (R | AL | AN | EN) -> true
+        | _ -> false)
+      && not (an && en)
+  | L -> (
+      all (function
+        | L | EN | ES | CS | ET | ON | BN | NSM -> true
+        | _ -> false)
+      &&
+      match last (Array.length cls - 1) with
+      | Some (L | EN) -> true
+      | _ -> false)
+  | AN | EN | ES | CS | ET | ON | BN | NSM | Other -> false
 
 (* The schemes the URL standard calls special, whose host must be a domain
    or an address: for them a host is required, and read narrowly -- letters,
@@ -652,8 +721,8 @@ let special scheme =
 
 let domain host =
   let host =
-    if String.length host > 1 && host.[String.length host - 1] = '.' then
-      String.sub host 0 (String.length host - 1)
+    if String.length host > 1 && Char.equal host.[String.length host - 1] '.'
+    then String.sub host 0 (String.length host - 1)
     else host
   in
   let labels = String.split_on_char '.' host in
@@ -662,7 +731,9 @@ let domain host =
   let label l =
     if
       String.length l >= 1
-      && String.for_all (fun c -> alpha c || digit c || c = '-' || c = '_') l
+      && String.for_all
+           (fun c -> alpha c || digit c || Char.equal c '-' || Char.equal c '_')
+           l
     then
       let l = String.lowercase_ascii l in
       if String.length l >= 4 && String.equal (String.sub l 0 4) "xn--" then
@@ -684,7 +755,10 @@ let domain host =
     List.for_all Option.is_some read
     &&
     let cps = List.filter_map Fun.id read in
-    let rtl = Array.exists (fun c -> List.mem (bidi_class c) [ 1; 2; 3 ]) in
+    let rtl =
+      Array.exists (fun c ->
+          match bidi_class c with R | AL | AN -> true | _ -> false)
+    in
     (not (List.exists rtl cps)) || List.for_all bidi_label cps
 
 let port s =
@@ -704,26 +778,23 @@ let authority ~special s =
     | None -> true
     | Some u ->
         chars
-          (fun c -> unreserved c || sub_delim c || c = ':')
+          (fun c -> unreserved c || sub_delim c || Char.equal c ':')
           u 0 (String.length u)
   in
-  let host, port_ok =
-    if String.length hostport > 0 && hostport.[0] = '[' then
+  let host_ok, port_ok =
+    if String.length hostport > 0 && Char.equal hostport.[0] '[' then
       match String.index_opt hostport ']' with
-      | None -> (None, false)
+      | None -> (false, false)
       | Some j ->
           let literal = String.sub hostport 1 (j - 1) in
           let after =
             String.sub hostport (j + 1) (String.length hostport - j - 1)
           in
-          let port_ok =
-            String.equal after ""
-            || after.[0] = ':'
-               && port (String.sub after 1 (String.length after - 1))
-          in
           (* An IPvFuture literal is RFC 3986's and not the URL standard's. *)
-          if ipv6 ~dotted:true literal then (Some `Literal, port_ok)
-          else (None, false)
+          ( ipv6 ~dotted:true literal,
+            String.equal after ""
+            || Char.equal after.[0] ':'
+               && port (String.sub after 1 (String.length after - 1)) )
     else
       let h, p =
         match String.index_opt hostport ':' with
@@ -734,14 +805,11 @@ let authority ~special s =
             )
         | None -> (hostport, None)
       in
-      let port_ok = match p with None -> true | Some p -> port p in
-      let ok =
-        if special then (not (String.equal h "")) && domain h
-        else chars (fun c -> unreserved c || sub_delim c) h 0 (String.length h)
-      in
-      if ok then (Some (`Name h), port_ok) else (None, false)
+      ( (if special then (not (String.equal h "")) && domain h
+         else chars (fun c -> unreserved c || sub_delim c) h 0 (String.length h)),
+        match p with None -> true | Some p -> port p )
   in
-  userinfo_ok && port_ok && Option.is_some host
+  userinfo_ok && host_ok && port_ok
 
 let uri_of_string s =
   let n = String.length s in
@@ -755,7 +823,8 @@ let uri_of_string s =
         && alpha s.[0]
         && String.for_all
              (fun ch ->
-               alpha ch || digit ch || ch = '+' || ch = '-' || ch = '.')
+               alpha ch || digit ch || Char.equal ch '+' || Char.equal ch '-'
+               || Char.equal ch '.')
              scheme
       in
       let fragment_at =
@@ -768,11 +837,17 @@ let uri_of_string s =
       in
       let tail_ok from until =
         from >= until
-        || chars (fun ch -> pchar ch || ch = '/' || ch = '?') s (from + 1) until
+        || chars
+             (fun ch -> pchar ch || Char.equal ch '/' || Char.equal ch '?')
+             s (from + 1) until
       in
       let hier = String.sub s (c + 1) (query_at - c - 1) in
       let hier_ok =
-        if String.length hier >= 2 && hier.[0] = '/' && hier.[1] = '/' then
+        if
+          String.length hier >= 2
+          && Char.equal hier.[0] '/'
+          && Char.equal hier.[1] '/'
+        then
           let rest = String.sub hier 2 (String.length hier - 2) in
           let slash =
             Option.value
@@ -782,14 +857,16 @@ let uri_of_string s =
           let auth = String.sub rest 0 slash in
           authority ~special:(special scheme) auth
           && chars
-               (fun ch -> pchar ch || ch = '/')
+               (fun ch -> pchar ch || Char.equal ch '/')
                rest slash (String.length rest)
         else
           (* With no authority a special scheme has no host, which the URL
              standard reads as the path's first segment: refused here, so a
              host is always written as one. *)
           (not (special scheme))
-          && chars (fun ch -> pchar ch || ch = '/') hier 0 (String.length hier)
+          && chars
+               (fun ch -> pchar ch || Char.equal ch '/')
+               hier 0 (String.length hier)
       in
       if
         scheme_ok && hier_ok

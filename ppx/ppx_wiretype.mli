@@ -8,10 +8,10 @@
       [[@key "k"]] names it on the wire; [[@with d]] describes it by [d] -- the
       inner type's, on an [option]. [[@min]], [[@max]], [[@multiple_of]] bound
       an [int], [int64] or [float]; [[@min_length]], [[@max_length]] a [string];
-      [[@min_items]], [[@max_items]] a [list]. [[@read_only]], [[@write_only]],
-      [[@wiretype.deprecated]] and [[@examples [...]]] are what a document says
-      of it, and a field's doc comment is its doc, as the type's is the
-      object's.
+      [[@min_items]], [[@max_items]] a [list]. [[@read_only]] or
+      [[@write_only]], [[@wiretype.deprecated]] and [[@examples [...]]] are what
+      a document says of it, and a field's doc comment is its doc, as the type's
+      is the object's.
     - A {b variant} of constant constructors is an enum, a word per constructor:
       its name with the first letter lowered, or [[@name "w"]].
     - A {b variant} with arguments is a union on a tag -- ["type"], or
@@ -25,6 +25,8 @@
       that refers to itself is described through [Wiretype.rec'].
     - A {b tuple} is a JSON array of exactly its items, each by its own
       description.
+    - Any other type [M.t] is described by [M.json], and [u] by [u_json]: a
+      [Wiretype.Value.t], by whatever alias it is written, is any JSON.
     - A [(key * value) list] marked [[@dict]] -- on its field, or on the type
       itself -- is a map ([Wiretype.dict]), which [[@min_properties]] and
       [[@max_properties]] bound; unmarked, it is a list of pairs, since which
@@ -32,4 +34,6 @@
 
     A function, an object type and a variant constructor with more than one
     argument have no JSON shape here, and are refused where they are written,
-    with what to write instead. *)
+    with what to write instead: each refusal is an error at its place in the
+    derived code, so an editor shows every one in a file, and the rest of the
+    file is still derived. *)

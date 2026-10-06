@@ -26,8 +26,9 @@ src/                 wiretype: depends on nothing
   decode, encode     one pass over text with a description in hand; the writer
   grammar            the kinds' grammars, hand-written
   schema             one walk into a schema, printed as JSON Schema and zod
-  problem, value,    what a reader is told, any JSON, and the two spellings
-  text
+  problem,           what a reader is told, what a writer is told, any JSON,
+  unwritable,        and the two spellings
+  value, text
   gen/               build-time programs: the powers of ten the double printer
                      reads, and the IDNA tables from unicode/
   unicode/           Unicode 15.0.0's own data files
@@ -66,6 +67,11 @@ Each rule comes with why it exists and the test that catches a break.
   will not send what the API would accept. Test: the same rows in
   `test_wiretype`'s `kinds` and in `test/zod/kinds.test.ts`; a row changed
   in one is changed in the other.
+- **A bound decides as its zod check does.** `multiple_of` on a number is
+  zod's `multipleOf`, rounding tolerance and all, so `19.99` is a multiple of
+  `0.01` on both sides. Why: a form that sends what the API then refuses.
+  Test: `multiple_rows` in `test_wiretype` and `multiples` in
+  `test/zod/kinds.test.ts`; a row changed in one is changed in the other.
 - **JSON Schema and zod are printed from one walk.** `Schema.walk` makes
   one intermediate schema and both printers read it, and what cannot be
   said exactly -- any JSON -- is reported as loose, never guessed at. Why:
@@ -77,10 +83,20 @@ Each rule comes with why it exists and the test that catches a break.
   inside breaks with any refactoring of it. Test: `test_wiretype`'s derived
   descriptions are compiled outside the library; `test_ppx_wiretype`'s
   refusals.
-- **`invalid_arg` only in `Object.Case.map`**, for a case that is not an
-  object, since a case is a constant written in source; its `.mli` says so.
+- **`invalid_arg` only where a description is built and can mean
+  nothing** -- a `multiple_of` that is not positive, two values with one
+  word, a member described twice, two unions in one object, a case that is
+  not an object -- since a description is a constant written in source,
+  and the mistake is found when the program starts, never on a request.
+  Each function's `.mli` says when it raises, and the deriver refuses at
+  compile time each of these it can see in the type -- a name given twice,
+  two constructors written alike -- leaving to the library only what it
+  cannot: a case whose one argument's type is no object.
   Nothing else raises across the library's boundary. Test: `test_style`
-  names it and refuses any other.
+  allows `invalid_arg` in `wiretype.ml` alone, and refuses any other;
+  `test_wiretype`'s malformed descriptions; `test_ppx_wiretype`'s
+  refusals. A stdlib call that raises (`Char.chr`, `String.sub`) is not
+  caught by the style test, and is checked by reading.
 - **The opens are `Tuple`'s, inside `Tuple.( ... )` as its `.mli` says, and
   the deriver's `Ppxlib` and `Ast_pattern`**, which every ppxlib rewriter
   opens to read the AST it matches. Test: `test_style` names each and

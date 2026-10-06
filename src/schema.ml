@@ -42,7 +42,8 @@ type t =
       cases : (Value.t * obj) list;
     }
 
-and obj = { about : string; props : prop list; additional : t option }
+and obj = { about : string; props : prop list; additional : additional }
+and additional = Allowed | Refused | Each of t
 
 and prop = {
   name : string;
@@ -58,22 +59,27 @@ let no_bounds =
 
 let text = { words = None; min_length = None; max_length = None; format = None }
 
-(* A value the library wrote, as the JSON it is: a case's tag, an example. *)
-let value_of shape v =
-  match Encode.run shape v with
-  | Error m -> Error m
-  | Ok s -> (
-      match Decode.run S.Value s with Ok v -> Ok v | Error _ -> Error s)
-
 (* ------------------------------------------------------------------ *)
 (* The walk *)
+
+type error_code = Kind_shared | Kind_not_a_name | Key_not_text | Unwritable
+type error = { at : string; code : error_code; message : string }
+
+let error_code_to_string = function
+  | Kind_shared -> "kind_shared"
+  | Kind_not_a_name -> "kind_not_a_name"
+  | Key_not_text -> "key_not_text"
+  | Unwritable -> "unwritable"
+
+let error_to_string e =
+  Printf.sprintf "%s: %s (%s)" e.at e.message (error_code_to_string e.code)
 
 type ctx = {
   mutable components : (string * string * t) list;
       (** name, fingerprint, schema -- newest first *)
   mutable walking : string list;
   mutable loose : string list;
-  mutable errors : string list;
+  mutable errors : error list;
 }
 
 let create () = { components = []; walking = []; loose = []; errors = [] }
@@ -83,7 +89,7 @@ let format_name = function
   | S.Date -> "date"
   | S.Duration -> "duration"
   | S.Uuid None -> "uuid"
-  | S.Uuid (Some v) -> "uuid" ^ string_of_int v
+  | S.Uuid (Some v) -> "uuid" ^ string_of_int (Grammar.uuid_version_number v)
   | S.Base64 -> "base64"
   | S.Base64url -> "base64url"
   | S.Uri -> "uri"
@@ -146,7 +152,10 @@ and obj_fingerprint o =
          (fun p ->
            p.name ^ (if p.required then ":" else "?:") ^ fingerprint p.schema)
          o.props)
-  ^ (match o.additional with Some a -> ",*:" ^ fingerprint a | None -> "")
+  ^ (match o.additional with
+    | Allowed -> ""
+    | Refused -> ",!"
+    | Each a -> ",*:" ^ fingerprint a)
   ^ "}"
 
 let name_of_kind kind =
@@ -162,33 +171,77 @@ let name_of_kind kind =
 
 let report ctx at what = ctx.loose <- (at ^ ": " ^ what) :: ctx.loose
 
-(* A name taken by a different schema is the decoded one's to give up: it is
-   named [Input], since an encoded one is what a reader looks up first. *)
-let rec register ctx dir name schema =
+let error ctx at code message =
+  ctx.errors <- { at; code; message } :: ctx.errors
+
+let register ctx at name schema =
   let f = fingerprint schema in
   match List.find_opt (fun (n, _, _) -> String.equal n name) ctx.components with
-  | None ->
-      ctx.components <- (name, f, schema) :: ctx.components;
-      name
-  | Some (_, f', _) when String.equal f f' -> name
-  | Some _ -> (
-      match dir with
-      | Decode when not (String.ends_with ~suffix:"Input" name) ->
-          register ctx dir (name ^ "Input") schema
-      | Decode | Encode ->
-          ctx.errors <-
-            Printf.sprintf
-              "two different descriptions share the kind that names %s" name
-            :: ctx.errors;
-          name)
+  | None -> ctx.components <- (name, f, schema) :: ctx.components
+  | Some (_, f', _) when String.equal f f' -> ()
+  | Some _ ->
+      error ctx at Kind_shared
+        (Printf.sprintf
+           "Two different descriptions share the kind that names %s." name)
 
 let of_int = Option.map float_of_int
 let of_int64 = Option.map Int64.to_float
 
-(* A recursive description is expanded only this far before it is "any":
-   past that point it is a component referring to itself, and nothing more
-   is learnt. *)
+(* A recursive description with no name is expanded only this far, and is
+   any JSON past it, which is reported; one with a name is a component that
+   refers to itself, and never reaches it. *)
 let max_depth = 3
+
+(* Whether a description is walked differently as a request and as an
+   answer: it has a member in one alone, or one [opt_mem] made, which a
+   request may give as [null] and an answer never writes. A component's
+   name follows from this alone -- a request's is [<Name>Input] exactly
+   where it holds -- so it never depends on what else was walked. *)
+let rec differs : type a. string list -> int -> a S.t -> bool =
+ fun seen depth shape ->
+  match shape with
+  | S.Null _ | S.Bool | S.Int _ | S.Int64 _ | S.Number _ | S.String _ | S.Enum _
+  | S.Value ->
+      false
+  | S.List l -> differs seen depth l.elt
+  | S.Tuple items -> items_differ seen depth items
+  | S.Dict d -> differs seen depth d.key || differs seen depth d.value
+  | S.Nullable t -> differs seen depth t
+  | S.Map (_, m) -> differs seen depth m.inner
+  | S.Any (_, a) ->
+      List.exists
+        (Option.fold ~none:false ~some:(differs seen depth))
+        [ a.null; a.bool; a.number; a.string; a.array; a.object_ ]
+  | S.Rec l -> depth < max_depth && differs seen (depth + 1) (Lazy.force l)
+  | S.Object (about, o) ->
+      if String.equal about.kind "" then fields_differ seen depth o.fields
+      else
+        (not (List.exists (String.equal about.kind) seen))
+        && fields_differ (about.kind :: seen) depth o.fields
+
+and items_differ : type t f. string list -> int -> (t, f) S.items -> bool =
+ fun seen depth items ->
+  match items with
+  | S.Items _ -> false
+  | S.Item (prev, it) ->
+      items_differ seen depth prev || differs seen depth it.described
+
+and fields_differ : type o f. string list -> int -> (o, f) S.fields -> bool =
+ fun seen depth fields ->
+  match fields with
+  | S.Build _ | S.Unread -> false
+  | S.Mem (prev, m) ->
+      (match m.access with
+        | `Read_write -> m.opt
+        | `Read_only | `Write_only -> true)
+      || differs seen depth m.shape
+      || fields_differ seen depth prev
+  | S.Cases (prev, S.Tagged t) ->
+      differs seen depth t.shape
+      || List.exists
+           (fun (S.Case cm) -> fields_differ seen depth cm.obj.fields)
+           t.cases
+      || fields_differ seen depth prev
 
 let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
  fun ctx dir at depth shape ->
@@ -236,8 +289,8 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
       (match keys with
       | String _ -> ()
       | _ ->
-          ctx.errors <-
-            (at ^ ": a map's names are text, and its key is not") :: ctx.errors);
+          error ctx at Key_not_text
+            "A map's names are text, and its key's description is not.");
       Dict
         {
           keys;
@@ -256,10 +309,15 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
       | String s, Some f -> String { s with format = Some f }
       | s, (Some _ | None) -> s)
   | S.Value ->
-      report ctx at "any JSON (Wiretype.value), which says nothing of its shape";
+      report ctx at
+        "any JSON (Wiretype.Value.json), which says nothing of its shape";
       Any
   | S.Rec l ->
-      if depth >= max_depth then Any
+      if depth >= max_depth then (
+        report ctx at
+          "a recursive description with no kind, any JSON from here; give its \
+           object a kind";
+        Any)
       else walk_ ctx dir at (depth + 1) (Lazy.force l)
 
 and tuple_items : type v f.
@@ -309,21 +367,29 @@ and props : type o f.
   | S.Mem (prev, m) ->
       let before = props ctx dir at depth prev in
       let shown =
-        match dir with Decode -> not m.read_only | Encode -> not m.write_only
+        match (dir, m.access) with
+        | Decode, `Read_only | Encode, `Write_only -> false
+        | (Decode | Encode), (`Read_write | `Read_only | `Write_only) -> true
       in
       if not shown then before
       else
-        let schema = walk_ ctx dir (at ^ "." ^ m.name) depth m.shape in
+        let at = at ^ "." ^ m.name in
         (* A member [opt_mem] made reads [null] as its absence and never
-           writes one. *)
+           writes one: its answer is the description it was given. *)
         let schema =
-          match (m.opt, dir, schema) with
-          | true, Encode, Nullable s -> s
-          | (true | false), (Decode | Encode), s -> s
+          match (m.opt, dir, m.shape) with
+          | true, Encode, S.Nullable given -> walk_ ctx dir at depth given
+          | _, (Decode | Encode), shape -> walk_ ctx dir at depth shape
         in
         let examples =
           List.filter_map
-            (fun v -> Result.to_option (value_of m.shape v))
+            (fun v ->
+              match Decode.written m.shape v with
+              | Ok v -> Some v
+              | Error e ->
+                  error ctx at Unwritable
+                    ("An example cannot be written: " ^ Unwritable.to_string e);
+                  None)
             m.examples
         in
         before
@@ -347,15 +413,17 @@ and object_ : type o. ctx -> dir -> string -> int -> S.about -> o S.obj -> t =
           {
             about = about.doc;
             props = props ctx dir at depth o.fields;
-            additional = None;
+            additional =
+              (match o.unknown with S.Skip -> Allowed | S.Refuse -> Refused);
           }
     | Some (Encode.Packed (S.Tagged c)) ->
         let base = props ctx dir at depth o.fields in
         let value tag =
-          match value_of c.shape tag with
+          match Decode.written c.shape tag with
           | Ok v -> v
-          | Error m ->
-              ctx.errors <- (at ^ ": a case's tag: " ^ m) :: ctx.errors;
+          | Error e ->
+              error ctx at Unwritable
+                ("A case's tag cannot be written: " ^ Unwritable.to_string e);
               Value.Null
         in
         Tagged
@@ -369,27 +437,50 @@ and object_ : type o. ctx -> dir -> string -> int -> S.about -> o S.obj -> t =
                     {
                       about = cm.case_about.doc;
                       props = base @ props ctx dir at depth cm.obj.fields;
-                      additional = None;
+                      additional =
+                        (match (o.unknown, cm.obj.unknown) with
+                        | S.Skip, S.Skip -> Allowed
+                        | S.Refuse, _ | _, S.Refuse -> Refused);
                     } ))
                 c.cases;
           }
   in
   if String.equal about.kind "" then build ()
   else
-    let name = name_of_kind about.kind in
+    let base = name_of_kind about.kind in
+    if
+      not
+        (String.length base > 0
+        && match base.[0] with 'A' .. 'Z' -> true | _ -> false)
+    then
+      error ctx at Kind_not_a_name
+        (Printf.sprintf
+           "The kind %S names no component, since %S does not begin with a \
+            letter."
+           about.kind base);
+    let name =
+      match dir with
+      | Decode when differs [] depth (S.Object (about, o)) -> base ^ "Input"
+      | Decode | Encode -> base
+    in
     if List.exists (String.equal name) ctx.walking then Ref name
     else begin
       ctx.walking <- name :: ctx.walking;
       let schema = build () in
       ctx.walking <-
         List.filter (fun n -> not (String.equal n name)) ctx.walking;
-      Ref (register ctx dir name schema)
+      register ctx at name schema;
+      Ref name
     end
 
 let walk ctx dir ~at t = walk_ ctx dir at 0 t
 let components ctx = List.rev_map (fun (n, _, s) -> (n, s)) ctx.components
 let loose ctx = List.sort_uniq String.compare ctx.loose
-let errors ctx = List.sort_uniq String.compare ctx.errors
+
+let errors ctx =
+  List.sort_uniq
+    (fun a b -> String.compare (error_to_string a) (error_to_string b))
+    ctx.errors
 
 (* A case's tag is one of its members in both printers, pinned to its value,
    and optional only in the case the tag stands for when it is left out. *)
@@ -553,8 +644,9 @@ module Json_schema = struct
             [ ("required", Value.Array (List.map (fun p -> str p.name) req)) ])
       @
       match o.additional with
-      | Some a -> [ ("additionalProperties", of_t ~defs a) ]
-      | None -> [])
+      | Allowed -> []
+      | Refused -> [ ("additionalProperties", Value.Bool false) ]
+      | Each a -> [ ("additionalProperties", of_t ~defs a) ])
 
   let document components root =
     let root =
@@ -620,7 +712,10 @@ module Zod = struct
 
   and refers_in names (o : obj) =
     List.exists (fun p -> refers names p.schema) o.props
-    || Option.fold ~none:false ~some:(refers names) o.additional
+    ||
+    match o.additional with
+    | Allowed | Refused -> false
+    | Each a -> refers names a
 
   let num f = Value.to_string (Value.Number f)
 
@@ -664,7 +759,9 @@ module Zod = struct
           ("z.iso.duration()", [ "z.regex(/" ^ Grammar.duration_pattern ^ "/)" ])
       | None, Some (S.Uuid None) -> ("z.uuid()", [])
       | None, Some (S.Uuid (Some v)) ->
-          (Printf.sprintf "z.uuid({ version: \"v%d\" })" v, [])
+          ( Printf.sprintf "z.uuid({ version: \"v%d\" })"
+              (Grammar.uuid_version_number v),
+            [] )
       | None, Some S.Base64 -> ("z.base64()", [])
       | None, Some S.Base64url -> ("z.base64url()", [])
       | None, Some S.Uri -> ("z.url()", [])
@@ -751,17 +848,20 @@ module Zod = struct
               else doc ^ inner ^ key p.name ^ ": " ^ s ^ ",\n")
         o.props
     in
-    let object_ () =
-      "z.object({\n" ^ String.concat "" members ^ indent ^ "})"
+    let object_ make =
+      make ^ "({\n" ^ String.concat "" members ^ indent ^ "})"
     in
     match (o.props, o.additional) with
-    | [], Some a -> "z.record(z.string(), " ^ expr ~indent ~forward a ^ ")"
-    | [], None -> "z.object({})"
-    | _ :: _, None -> object_ ()
+    | [], Each a -> "z.record(z.string(), " ^ expr ~indent ~forward a ^ ")"
+    | [], Allowed -> "z.object({})"
+    | [], Refused -> "z.strictObject({})"
+    | _ :: _, Allowed -> object_ "z.object"
+    | _ :: _, Refused -> object_ "z.strictObject"
     (* The members it names and whatever else, as JSON Schema's
        additionalProperties says beside them. *)
-    | _ :: _, Some a ->
-        "z.catchall(" ^ object_ () ^ ", " ^ expr ~indent ~forward a ^ ")"
+    | _ :: _, Each a ->
+        "z.catchall(" ^ object_ "z.object" ^ ", " ^ expr ~indent ~forward a
+        ^ ")"
 
   let of_t ?indent t = expr ?indent t
 

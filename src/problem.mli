@@ -28,7 +28,7 @@ type code =
   | Malformed  (** a string its kind cannot read: a date, an id *)
 
 val code_to_string : code -> string
-(** [missing], [unexpected_type], ...: the word a client reads. *)
+(** [required], [unexpected_type], ...: the word a client reads. *)
 
 type t = { at : segment list; code : code; message : string }
 (** [at] is the path from the root; [message] a sentence for a person. *)

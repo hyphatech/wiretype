@@ -120,11 +120,13 @@ let hex4 st path =
   in
   if st.i + 4 > st.len then syntax st path "four hexadecimal digits"
   else
-    let v =
-      (digit 0 lsl 12) lor (digit 1 lsl 8) lor (digit 2 lsl 4) lor digit 3
-    in
+    (* In order, so a bad digit is said at the first of them. *)
+    let d0 = digit 0 in
+    let d1 = digit 1 in
+    let d2 = digit 2 in
+    let d3 = digit 3 in
     st.i <- st.i + 4;
-    v
+    (d0 lsl 12) lor (d1 lsl 8) lor (d2 lsl 4) lor d3
 
 (* A string, at its opening quote. With [keep] it is built; without, it is
    only checked -- a value being skipped. Text with no escape is one copy. *)
@@ -401,14 +403,28 @@ let rec json st path depth : Value.t =
       Value.Number f
   | _ -> syntax st path "a value"
 
-let state ?(max_depth = 512) s =
+let state ?(max_depth = Encode.max_depth) s =
   { s; len = String.length s; i = 0; problems = []; max_depth }
 
-(* A value the library wrote itself, read back as any JSON: a union's tag,
-   compared with the one a document gives. *)
-let value_of_text s =
-  let st = state s in
-  match json st [] 0 with v -> v | exception Stop -> Value.Null
+(* A value as the JSON it is written as: a union's tag, compared with the
+   one a document gives; an example; [Wiretype.to_value]. What [Encode]
+   writes is UTF-8, has no member twice and nests no deeper than this
+   reads, so its text is always read back, and a refusal here would be the
+   two disagreeing: it is said as the value's, with what was refused. *)
+let written shape v =
+  match Encode.run shape v with
+  | Error e -> Error e
+  | Ok s -> (
+      let st = state s in
+      match json st [] 0 with
+      | v when List.is_empty st.problems -> Ok v
+      | _ | (exception Stop) ->
+          Error
+            {
+              Unwritable.at = [];
+              code = Unwritable.Unspellable;
+              message = P.list_to_string (List.rev st.problems);
+            })
 
 (* ------------------------------------------------------------------ *)
 (* Reading by a description *)
@@ -535,6 +551,16 @@ let int64_ st path (b : S.int64_bounds) =
                  (show b.multiple_of)) );
         ])
 
+(* zod's own check, so a browser and the server decide alike: the quotient
+   within four epsilons of a whole number, scaled by its size, since the
+   value and the step were each rounded to a double before the division
+   rounded again -- 19.99 is a multiple of 0.01, though 19.99 /. 0.01 is
+   1998.9999999999998. *)
+let multiple f m =
+  let ratio = f /. m in
+  Float.abs (ratio -. Float.round ratio)
+  < 4. *. epsilon_float *. Float.max (Float.abs ratio) 1.
+
 let number_ st path (b : S.number_bounds) =
   let text, _ = number st path in
   let f = float_of_string text in
@@ -557,8 +583,7 @@ let number_ st path (b : S.number_bounds) =
         ( bound b.below (fun m -> f < m),
           P.Too_large,
           lazy (Printf.sprintf "This must be less than %s." (show b.below)) );
-        ( bound b.multiple_of (fun m ->
-              Float.equal m 0. || Float.is_integer (f /. m)),
+        ( bound b.multiple_of (multiple f),
           P.Not_a_multiple,
           lazy
             (Printf.sprintf "This must be a multiple of %s."
@@ -620,8 +645,9 @@ type member = { name : string; set : setter; mutable seen : bool }
 let member name set = { name; set; seen = false }
 
 (* What a union's tag decides, once the members are known: the case's
-   setters, and what fills the union's slot when they have run. *)
-type hook = (string * int) list -> member list * (unit -> unit)
+   setters, what its object does with a member neither describes, and what
+   fills the union's slot when they have run. *)
+type hook = (string * int) list -> member list * S.unknown * (unit -> unit)
 
 let rec value : type a. st -> path -> int -> a S.t -> a option =
  fun st path depth shape ->
@@ -658,15 +684,15 @@ let rec value : type a. st -> path -> int -> a S.t -> a option =
         string_bounded st path l (string_ st path ~keep:true)
       else mismatch st path depth "text"
   | S.Enum (_, e) ->
-      let words = List.map (fun (w, _) -> Text.quote w) e.words in
+      let words () = List.map (fun (w, _) -> Text.quote w) e.words in
       if Char.equal (peek st) '"' then (
         let w = string_ st path ~keep:true in
         match List.assoc_opt w e.words with
         | Some v -> Some v
         | None ->
-            report st path P.Unknown_word (one_of words);
+            report st path P.Unknown_word (one_of (words ()));
             None)
-      else mismatch st path depth ("one of " ^ either words)
+      else mismatch st path depth ("one of " ^ either (words ()))
   | S.List l ->
       if Char.equal (peek st) '[' then list st path depth l
       else mismatch st path depth "a list"
@@ -950,13 +976,12 @@ and choose : type o c.
     (o, c) S.cases ->
     c slot ref ->
     (string * int) list ->
-    member list * (unit -> unit) =
+    member list * S.unknown * (unit -> unit) =
  fun st path depth (S.Tagged t) slot members ->
   let at = P.Member t.name :: path in
+  (* A tag that cannot be written is refused where the union is built. *)
   let tag_value tag =
-    match Encode.run t.shape tag with
-    | Ok s -> value_of_text s
-    | Error _ -> Value.Null
+    match written t.shape tag with Ok v -> v | Error _ -> Value.Null
   in
   let cases =
     List.map (fun (S.Case cm as c) -> (tag_value cm.tag, c)) t.cases
@@ -971,7 +996,7 @@ and choose : type o c.
   let the_tag = member t.name (fun () -> ()) in
   let refused () =
     slot := Failed;
-    ([ the_tag ], fun () -> ())
+    ([ the_tag ], S.Skip, fun () -> ())
   in
   match given with
   | None ->
@@ -989,6 +1014,7 @@ and choose : type o c.
             prepare st path depth cm.obj.fields [ the_tag ] (ref None)
           in
           ( setters,
+            cm.obj.unknown,
             fun () ->
               slot :=
                 match (k (), cm.build) with
@@ -1006,9 +1032,8 @@ and object_ : type o. st -> path -> int -> o S.obj -> o option =
   | None -> plain st path depth o
   | Some (Encode.Packed _) -> cased st path depth o
 
-and unknown : type o. st -> path -> o S.obj -> unit =
- fun st at o ->
-  match o.unknown with
+and unknown st at (policy : S.unknown) =
+  match policy with
   | S.Skip -> ()
   | S.Refuse ->
       report st at P.Unknown_member "This is not a member this object has."
@@ -1049,7 +1074,7 @@ and plain : type o. st -> path -> int -> o S.obj -> o option =
                skip st at (depth + 1);
                unknowns)
              else (
-               unknown st at o;
+               unknown st at o.unknown;
                skip st at (depth + 1);
                Names.add name unknowns)
        in
@@ -1120,13 +1145,21 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
         st.i <- st.i + 1;
         ws st;
         let pos = st.i in
+        (* What skipping finds inside a member is said once: by its reading
+           when the object or its case describes it, and here when neither
+           does. *)
+        let before = st.problems in
         skip st at (depth + 1);
+        let found = List.length st.problems - List.length before in
+        let inside = List.filteri (fun i _ -> i < found) st.problems in
+        st.problems <- before;
         let names, acc =
           if Names.mem name names then (
             report st at P.Repeated_member
               "This member is given more than once.";
+            st.problems <- inside @ st.problems;
             (names, acc))
-          else (Names.add name names, (name, pos) :: acc)
+          else (Names.add name names, (name, pos, inside) :: acc)
         in
         ws st;
         match peek st with
@@ -1143,17 +1176,27 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
   let stop = st.i in
   let hook = ref None in
   let base, k = prepare st path depth o.fields [] hook in
-  let own, fill =
-    match !hook with Some h -> h members | None -> ([], fun () -> ())
+  let own, case_unknown, fill =
+    match !hook with
+    | Some h -> h (List.map (fun (name, pos, _) -> (name, pos)) members)
+    | None -> ([], S.Skip, fun () -> ())
   in
   let setters = base @ own in
+  (* A member neither describes is refused where either refuses one. *)
+  let policy =
+    match (o.unknown, case_unknown) with
+    | S.Skip, S.Skip -> S.Skip
+    | S.Refuse, _ | _, S.Refuse -> S.Refuse
+  in
   List.iter
-    (fun (name, pos) ->
+    (fun (name, pos, inside) ->
       match List.find_opt (fun m -> String.equal m.name name) setters with
       | Some m ->
           st.i <- pos;
           m.set ()
-      | None -> unknown st (P.Member name :: path) o)
+      | None ->
+          st.problems <- inside @ st.problems;
+          unknown st (P.Member name :: path) policy)
     members;
   fill ();
   st.i <- stop;

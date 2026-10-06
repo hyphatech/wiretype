@@ -152,7 +152,7 @@ let spell spelling name =
   let name =
     if
       n > 1
-      && name.[n - 1] = '_'
+      && Char.equal name.[n - 1] '_'
       && List.mem (String.sub name 0 (n - 1)) keywords
     then String.sub name 0 (n - 1)
     else name
@@ -212,14 +212,10 @@ let rec desc env (ct : core_type) =
           [%expr Wiretype.list [%e desc env a]]
       | Ptyp_constr ({ txt = Lident "array"; _ }, [ a ]) ->
           [%expr
-            Wiretype.map ~dec:Array.of_list ~enc:Array.to_list
+            Wiretype.map ~dec:Stdlib.Array.of_list ~enc:Stdlib.Array.to_list
               (Wiretype.list [%e desc env a])]
       | Ptyp_constr ({ txt = Lident "option"; _ }, [ a ]) ->
           [%expr Wiretype.nullable [%e desc env a]]
-      | Ptyp_constr
-          ({ txt = Ldot (Ldot (Lident "Wiretype", "Value"), "t"); _ }, [])
-      | Ptyp_constr ({ txt = Ldot (Lident "Value", "t"); _ }, []) ->
-          [%expr Wiretype.value]
       | Ptyp_constr ({ txt = Lident n; _ }, args)
         when env.recursive && List.mem n env.group ->
           (* A type of the group is not yet defined where it is referred to:
@@ -297,17 +293,26 @@ let base_name (ct : core_type) =
 
 type field = { ocaml : string; wire : string; ld : label_declaration }
 
+(* A name the wire would hold twice is refused here, where it is written,
+   rather than by [Wiretype.Object.finish] when the program starts. *)
 let fields spelling lds =
-  List.map
-    (fun (ld : label_declaration) ->
+  List.fold_left
+    (fun acc (ld : label_declaration) ->
       let ocaml = ld.pld_name.txt in
       let wire =
         match Attribute.get A.key ld with
         | Some k -> k
         | None -> spell spelling ocaml
       in
-      { ocaml; wire; ld })
-    lds
+      (match List.find_opt (fun f -> String.equal f.wire wire) acc with
+      | Some f ->
+          Location.raise_errorf ~loc:ld.pld_loc
+            "wiretype: %s and %s are both the member %S; name one with [@key]"
+            f.ocaml ocaml wire
+      | None -> ());
+      { ocaml; wire; ld } :: acc)
+    [] lds
+  |> List.rev
 
 let labelled label e = (Labelled label, e)
 let some label = Option.map (labelled label)
@@ -412,17 +417,29 @@ let member env (f : field) ~enc =
   let flag a name =
     if Attribute.has_flag a ld then Some (labelled name [%expr true]) else None
   in
-  let read_only = flag A.read_only "read_only"
-  and write_only = flag A.write_only "write_only" in
+  let access =
+    match
+      (Attribute.has_flag A.read_only ld, Attribute.has_flag A.write_only ld)
+    with
+    | false, false -> None
+    | true, false -> Some (labelled "access" [%expr `Read_only])
+    | false, true -> Some (labelled "access" [%expr `Write_only])
+    | true, true ->
+        Location.raise_errorf ~loc
+          "wiretype: a member is in answers alone or in requests alone; write \
+           [@read_only] or [@write_only], not both"
+  in
   let deprecated = flag A.deprecated "deprecated" in
   let enc = labelled "enc" enc in
   let name = (Nolabel, B.estring ~loc f.wire) in
   match (is_option ld.pld_type, Attribute.get A.default ld) with
   | Some inner, None ->
       let d = field_desc env ~target:inner ld in
+      let examples =
+        Option.map (labelled "examples") (Attribute.get A.examples ld)
+      in
       let args =
-        List.filter_map Fun.id
-          [ doc; Some enc; deprecated; read_only; write_only ]
+        List.filter_map Fun.id [ doc; Some enc; deprecated; access; examples ]
       in
       B.pexp_apply ~loc [%expr Wiretype.Object.opt_mem]
         (args @ [ name; (Nolabel, d) ])
@@ -434,10 +451,21 @@ let member env (f : field) ~enc =
       let absent = Option.map (labelled "absent") default in
       let args =
         List.filter_map Fun.id
-          [ doc; absent; Some enc; deprecated; read_only; write_only; examples ]
+          [ doc; absent; Some enc; deprecated; access; examples ]
       in
       B.pexp_apply ~loc [%expr Wiretype.Object.mem]
         (args @ [ name; (Nolabel, d) ])
+
+(* A refusal is written where what it refuses would have been, as an error
+   node reported at its place, and the rest of the file is still derived:
+   an editor shows every refusal in a file at once, with no unbound name
+   after them, where a raise stops the rewriting at the first. A build still
+   stops at the first error, as the compiler does with any. *)
+let refused_or ~loc f =
+  match f () with
+  | e -> e
+  | exception Location.Error err ->
+      B.pexp_extension ~loc (Location.Error.to_extension err)
 
 let pipe ~loc acc e = [%expr [%e acc] |> [%e e]]
 
@@ -453,7 +481,12 @@ let object_of env ~loc ~kind ~doc fs ~build ~project =
            Some (Nolabel, build);
          ])
   in
-  let members = List.mapi (fun i f -> member env f ~enc:(project i f)) fs in
+  let members =
+    List.mapi
+      (fun i f ->
+        refused_or ~loc:f.ld.pld_loc (fun () -> member env f ~enc:(project i f)))
+      fs
+  in
   pipe ~loc
     (List.fold_left (pipe ~loc) map members)
     [%expr Wiretype.Object.finish]
@@ -512,7 +545,7 @@ type case = {
   value : expression;  (** the case's value, from what [pattern] bound *)
 }
 
-let variant_case env ~spelling (cd : constructor_declaration) =
+let variant_case env ~spelling ~tag (cd : constructor_declaration) =
   let loc = cd.pcd_loc in
   let name = cd.pcd_name.txt in
   let word =
@@ -532,7 +565,6 @@ let variant_case env ~spelling (cd : constructor_declaration) =
         value = [%expr ()];
       }
   | Pcstr_tuple [ arg ] ->
-      let arg = arg in
       {
         word;
         obj = desc env arg;
@@ -547,6 +579,13 @@ let variant_case env ~spelling (cd : constructor_declaration) =
         name
   | Pcstr_record lds ->
       let fs = fields spelling lds in
+      (match List.find_opt (fun f -> String.equal f.wire tag) fs with
+      | Some f ->
+          Location.raise_errorf ~loc:f.ld.pld_loc
+            "wiretype: %s is the member %S, which is the union's tag; name it \
+             with [@key], or the tag with [@@tag]"
+            f.ocaml tag
+      | None -> ());
       let names = List.map (fun f -> f.ocaml) fs in
       let n = List.length fs in
       let project i (f : field) =
@@ -634,6 +673,16 @@ let constant cases =
     cases
 
 let cases_desc ~loc ~kind ~doc ~tag cases =
+  ignore
+    (List.fold_left
+       (fun words c ->
+         if List.mem c.word words then
+           Location.raise_errorf ~loc
+             "wiretype: two constructors are written %S; name one with [@name]"
+             c.word
+         else c.word :: words)
+       [] cases
+      : string list);
   let kind_arg =
     Option.map (fun k -> labelled "kind" (B.estring ~loc k)) kind
   in
@@ -648,9 +697,7 @@ let cases_desc ~loc ~kind ~doc ~tag cases =
     in
     let values =
       B.elist ~loc
-        (List.map
-           (fun c -> c.dec |> fun d -> B.eapply ~loc d [ [%expr ()] ])
-           cases)
+        (List.map (fun c -> B.eapply ~loc c.dec [ [%expr ()] ]) cases)
     in
     B.pexp_apply ~loc [%expr Wiretype.enum]
       (List.filter_map Fun.id
@@ -728,7 +775,7 @@ let body env ~code_path (td : type_declaration) =
   | Ptype_record lds, _ -> record env ~loc ~kind ~doc ~spelling td lds
   | Ptype_variant cds, _ ->
       cases_desc ~loc ~kind ~doc ~tag
-        (List.map (variant_case env ~spelling) cds)
+        (List.map (variant_case env ~spelling ~tag) cds)
   | Ptype_abstract, Some { ptyp_desc = Ptyp_variant (rows, _, _); _ } ->
       cases_desc ~loc ~kind ~doc ~tag (List.map (poly_case env ~spelling) rows)
   | Ptype_abstract, Some manifest -> desc env manifest
@@ -794,14 +841,17 @@ let str_type_decl ~ctxt (rec_flag, tds) =
     List.exists (fun td -> not (List.is_empty td.ptype_params)) tds
   in
   let env = { group; recursive; params } in
-  let with_params td e = lambda ~loc (List.map var_json (param_names td)) e in
+  let with_params td e =
+    refused_or ~loc:td.ptype_loc (fun () ->
+        lambda ~loc (List.map var_json (param_names td)) (e ()))
+  in
   match (recursive, params) with
   | false, _ ->
       List.map
         (fun td ->
           [%stri
             let [%p B.pvar ~loc (json_name td.ptype_name.txt)] =
-              [%e with_params td (body env ~code_path td)]])
+              [%e with_params td (fun () -> body env ~code_path td)]])
         tds
   | true, true ->
       [
@@ -811,8 +861,8 @@ let str_type_decl ~ctxt (rec_flag, tds) =
                B.value_binding ~loc
                  ~pat:(B.pvar ~loc (json_name td.ptype_name.txt))
                  ~expr:
-                   (with_params td
-                      [%expr Wiretype.rec' (lazy [%e body env ~code_path td])]))
+                   (with_params td (fun () ->
+                        [%expr Wiretype.rec' (lazy [%e body env ~code_path td])])))
              tds);
       ]
   | true, false ->
@@ -822,7 +872,12 @@ let str_type_decl ~ctxt (rec_flag, tds) =
              (fun td ->
                B.value_binding ~loc
                  ~pat:(B.pvar ~loc (lazy_name td.ptype_name.txt))
-                 ~expr:[%expr lazy [%e body env ~code_path td]])
+                 ~expr:
+                   [%expr
+                     lazy
+                       [%e
+                         refused_or ~loc:td.ptype_loc (fun () ->
+                             body env ~code_path td)]])
              tds);
         B.pstr_value ~loc Nonrecursive
           (List.map
@@ -840,22 +895,26 @@ let sig_type_decl ~ctxt (_rec_flag, tds) =
   let loc = Expansion_context.Deriver.derived_item_loc ctxt in
   List.map
     (fun td ->
-      let vars = param_names td in
-      let ty =
-        B.ptyp_constr ~loc
-          { txt = Lident td.ptype_name.txt; loc }
-          (List.map (B.ptyp_var ~loc) vars)
-      in
-      let described t = [%type: [%t t] Wiretype.t] in
-      let full =
-        List.fold_right
-          (fun v acc -> [%type: [%t described (B.ptyp_var ~loc v)] -> [%t acc]])
-          vars (described ty)
-      in
-      B.psig_value ~loc
-        (B.value_description ~loc
-           ~name:{ txt = json_name td.ptype_name.txt; loc }
-           ~type_:full ~prim:[]))
+      match param_names td with
+      | exception Location.Error err ->
+          B.psig_extension ~loc (Location.Error.to_extension err) []
+      | vars ->
+          let ty =
+            B.ptyp_constr ~loc
+              { txt = Lident td.ptype_name.txt; loc }
+              (List.map (B.ptyp_var ~loc) vars)
+          in
+          let described t = [%type: [%t t] Wiretype.t] in
+          let full =
+            List.fold_right
+              (fun v acc ->
+                [%type: [%t described (B.ptyp_var ~loc v)] -> [%t acc]])
+              vars (described ty)
+          in
+          B.psig_value ~loc
+            (B.value_description ~loc
+               ~name:{ txt = json_name td.ptype_name.txt; loc }
+               ~type_:full ~prim:[]))
     tds
 
 let () =

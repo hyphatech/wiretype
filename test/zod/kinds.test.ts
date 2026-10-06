@@ -2,7 +2,8 @@
 // test/test_wiretype.ml's, each with whether the server takes it and
 // whether zod does, through the checks the schema printer writes for each
 // kind. The server never takes what the browser refuses; the two differ only
-// where the browser is the looser, which only a URI is.
+// where the browser is the looser: a URI, an instant past the years 0000 to
+// 9999 once in UTC, and a duration past a hundred thousand years.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as z from "zod/mini";
@@ -25,6 +26,8 @@ const kinds: [string, z.ZodMiniType, Row[]][] = [
       ["0000-01-01T00:00:00Z", true, true],
       ["2024-02-29T23:59:59-23:59", true, true],
       ["9999-12-31T23:59:59.999Z", true, true],
+      ["9999-12-31T23:59:59-00:01", false, true],
+      ["0000-01-01T00:00:00+00:01", false, true],
       ["2026-09-30t12:00:00Z", false, false],
       ["2026-09-30T12:00:00z", false, false],
       ["2026-09-30T12:00Z", false, false],
@@ -73,6 +76,12 @@ const kinds: [string, z.ZodMiniType, Row[]][] = [
       ["1D", false, false],
       ["PT1.5M", false, false],
       ["P1DT", false, false],
+      ["P36525000D", true, true],
+      ["P36525001D", false, true],
+      ["P99999999999D", false, true],
+      ["P1000000000000W", false, true],
+      ["PT3000000000000000H", false, true],
+      ["PT9999999999999999S", false, true],
     ],
   ],
   [
@@ -197,6 +206,29 @@ const kinds: [string, z.ZodMiniType, Row[]][] = [
     ],
   ],
 ];
+
+// A value, a step, and whether the value is a multiple of it: the rows of
+// test/test_wiretype.ml's multiple_rows, which the server decides alike.
+const multiples: [value: number, step: number, multiple: boolean][] = [
+  [19.99, 0.01, true],
+  [0.3, 0.1, true],
+  [2.03, 0.07, true],
+  [0.35, 0.1, false],
+  [1e-7, 1e-8, true],
+  [10, 2.5, true],
+  [7, 2.5, false],
+  [123456789.12, 0.01, true],
+  [0.1, 0.3, false],
+];
+
+describe("multipleOf, as zod reads it", () => {
+  for (const [value, step, multiple] of multiples) {
+    test(`${value} a multiple of ${step}: ${multiple}`, () => {
+      const read = z.number().check(z.multipleOf(step)).safeParse(value).success;
+      assert.equal(read, multiple);
+    });
+  }
+});
 
 describe("the kinds, as zod reads them", () => {
   for (const [name, schema, rows] of kinds) {

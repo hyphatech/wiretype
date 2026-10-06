@@ -35,12 +35,16 @@ type number_bounds = {
 type length = { min_length : int option; max_length : int option }
 (** In code points, as JSON Schema counts a string's length. *)
 
+type uuid_version = [ `V1 | `V2 | `V3 | `V4 | `V5 | `V6 | `V7 | `V8 ]
+(** The versions RFC 9562 defines. *)
+
 (** What a string is written in, where a schema has a word for it. *)
 type format =
   | Date_time  (** RFC 3339 [date-time] *)
   | Date  (** RFC 3339 [full-date] *)
   | Duration  (** ISO 8601, with no years or months *)
-  | Uuid of int option  (** RFC 9562, of one version where it names one *)
+  | Uuid of uuid_version option
+      (** RFC 9562, of one version where it names one *)
   | Base64  (** RFC 4648 §4 *)
   | Base64url  (** RFC 4648 §5 *)
   | Uri  (** RFC 3986 *)
@@ -49,6 +53,13 @@ type format =
 
 (** What an object does with a member it does not describe. *)
 type unknown = Skip | Refuse
+
+type access =
+  [ `Read_write  (** in requests and answers *)
+  | `Read_only  (** in answers alone: the server's to give *)
+  | `Write_only  (** in requests alone: a password *) ]
+(** Which of a request and an answer a member is in, as OpenAPI's [readOnly] and
+    [writeOnly] say. *)
 
 type 'a enum = {
   words : (string * 'a) list;
@@ -122,8 +133,7 @@ and ('o, 'a) mem = {
   opt : bool;
       (** made by {!Wiretype.Object.opt_mem}: [null] or absent is [None], and
           [None] is left out *)
-  read_only : bool;  (** in answers alone *)
-  write_only : bool;  (** in requests alone *)
+  access : access;
   deprecated : bool;
   examples : 'a list;
 }

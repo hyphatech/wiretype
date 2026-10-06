@@ -6,9 +6,10 @@
     ({!Decode}) and what an answer writes ({!Encode}) differ where a member is
     read-only, write-only, or made by {!Wiretype.Object.opt_mem}, which reads
     [null] and never writes it. Each object with a [kind] is a component named
-    by it ({!name_of_kind}); two different schemas under one name are an error,
-    unless they differ only by direction, when the request's is [<Name>Input].
-*)
+    by it ({!name_of_kind}), and a request's is [<Name>Input] exactly where its
+    description differs by direction, at any depth: a name follows from the
+    description and the direction alone, never from what else was walked or in
+    what order. Two different schemas under one name are an error. *)
 
 type dir = Decode | Encode
 
@@ -52,7 +53,13 @@ type t =
       cases : (Value.t * obj) list;
     }
 
-and obj = { about : string; props : prop list; additional : t option }
+and obj = { about : string; props : prop list; additional : additional }
+
+(** What an object says of a member it does not name. *)
+and additional =
+  | Allowed  (** anything, and it is no part of the value *)
+  | Refused  (** none: {!Wiretype.Object.error_unknown} *)
+  | Each of t  (** each by this schema *)
 
 and prop = {
   name : string;
@@ -81,11 +88,26 @@ val components : ctx -> (string * t) list
 (** In the order they were first met. *)
 
 val loose : ctx -> string list
-(** Every place described loosely: any JSON ({!Wiretype.value}), which says
-    nothing of its shape. *)
+(** Every place described loosely: any JSON ({!Wiretype.Value.json}), which says
+    nothing of its shape, and a recursive description with no kind, where its
+    expansion stops. *)
 
-val errors : ctx -> string list
-(** Every place a schema could not be made: two descriptions under one name. *)
+(** Why a schema could not be made right. *)
+type error_code =
+  | Kind_shared  (** two different descriptions under one kind's name *)
+  | Kind_not_a_name  (** a kind whose name does not begin with a letter *)
+  | Key_not_text  (** a map's key whose description is not text *)
+  | Unwritable  (** a case's tag, or an example, that cannot be written *)
+
+type error = { at : string; code : error_code; message : string }
+(** [at] is where the description is used, as {!walk}'s [at] and the path below
+    it say. *)
+
+val error_code_to_string : error_code -> string
+val error_to_string : error -> string
+
+val errors : ctx -> error list
+(** Every place a schema could not be made right, once each. *)
 
 val name_of_kind : string -> string
 (** [order line] is [OrderLine]: a component's name. *)

@@ -31,12 +31,13 @@ let member path j =
 let str = function V.String s -> s | _ -> Alcotest.fail "not a string"
 let items = function V.Array l -> l | _ -> Alcotest.fail "not an array"
 let strs j = List.map str (items j)
+let error_lines ctx = List.map S.error_to_string (S.errors ctx)
 
 (* One walk, checked for errors, as a caller would. *)
 let walked ?(dir = S.Encode) description =
   let ctx = S.create () in
   let root = S.walk ctx dir ~at:"test" description in
-  match S.errors ctx with
+  match error_lines ctx with
   | [] -> (ctx, root)
   | e -> Alcotest.failf "the walk failed: %s" (String.concat "; " e)
 
@@ -68,9 +69,11 @@ let test_a_document_stands_alone () =
     "the dialect" "https://json-schema.org/draft/2020-12/schema"
     (str (member [ "$schema" ] doc));
   Alcotest.(check string)
-    "the root, a component" "#/$defs/Config"
+    "the root, a component, named as a request since it reads null where an \
+     answer never writes it"
+    "#/$defs/ConfigInput"
     (str (member [ "$ref" ] doc));
-  let c = member [ "$defs"; "Config" ] doc in
+  let c = member [ "$defs"; "ConfigInput" ] doc in
   Alcotest.(check string)
     "its documentation" "How the service starts."
     (str (member [ "description" ] c));
@@ -225,17 +228,80 @@ let test_what_is_loose_is_reported () =
   let loose =
     Wiretype.Object.map ~kind:"loose" (fun c j -> (c, j))
     |> Wiretype.Object.mem "colour" colour ~enc:fst
-    |> Wiretype.Object.mem "anything" Wiretype.value ~enc:snd
+    |> Wiretype.Object.mem "anything" Wiretype.Value.json ~enc:snd
     |> Wiretype.Object.finish
   in
   let ctx, _ = walked loose in
   Alcotest.(check (list string))
     "each, where it is"
     [
-      "test.anything: any JSON (Wiretype.value), which says nothing of its \
-       shape";
+      "test.anything: any JSON (Wiretype.Value.json), which says nothing of \
+       its shape";
     ]
-    (S.loose ctx)
+    (S.loose ctx);
+  let rec rose =
+    lazy
+      (Wiretype.map
+         ~dec:(fun l -> `Rose l)
+         ~enc:(fun (`Rose l) -> l)
+         (Wiretype.list (Wiretype.rec' rose)))
+  in
+  let ctx, root = walked (Lazy.force rose) in
+  Alcotest.(check string)
+    "a recursion with no kind, to its depth"
+    "z.array(z.array(z.array(z.array(z.unknown()))))" (S.Zod.of_t root);
+  Alcotest.(check (list string))
+    "and reported past it"
+    [
+      "test[][][][]: a recursive description with no kind, any JSON from here; \
+       give its object a kind";
+    ]
+    (S.loose ctx);
+  let ctx = S.create () in
+  ignore
+    (S.walk ctx S.Encode ~at:"x"
+       (Wiretype.Object.map Fun.id
+       |> Wiretype.Object.mem "when" Wiretype.instant ~enc:Fun.id
+            ~examples:[ max_int ]
+       |> Wiretype.Object.finish)
+      : S.t);
+  Alcotest.(check bool)
+    "an example that cannot be written is an error" true
+    (List.exists
+       (contains ~sub:"x.when: An example cannot be written")
+       (error_lines ctx))
+
+(* A member nobody describes is refused by the schema as by the reader, and a
+   member [opt_mem] made answers as the description it was given. *)
+let test_what_the_reader_refuses () =
+  let strict =
+    Wiretype.Object.map ~kind:"strict" Fun.id
+    |> Wiretype.Object.mem "a" Wiretype.int ~enc:Fun.id
+    |> Wiretype.Object.error_unknown |> Wiretype.Object.finish
+  in
+  let ctx, root = walked strict in
+  let doc = S.Json_schema.document (S.components ctx) root in
+  Alcotest.(check bool)
+    "no other member" true
+    (match member [ "$defs"; "Strict"; "additionalProperties" ] doc with
+    | V.Bool false -> true
+    | _ -> false);
+  Alcotest.(check bool)
+    "and zod's strict object" true
+    (contains ~sub:"StrictSchema = z.strictObject({"
+       (S.Zod.components (S.components ctx)));
+  let maybe =
+    Wiretype.Object.map ~kind:"maybe" Fun.id
+    |> Wiretype.Object.opt_mem "v"
+         (Wiretype.nullable Wiretype.string)
+         ~enc:Fun.id
+    |> Wiretype.Object.finish
+  in
+  let ctx, _ = walked maybe in
+  Alcotest.(check bool)
+    "an answer that may hold null says so" true
+    (contains ~sub:"v: z.optional(z.nullable(z.string()))"
+       (S.Zod.components (S.components ctx)))
 
 (* An application's own union of all five kinds is described as one; only
    any JSON says nothing, and is reported. *)
@@ -288,9 +354,10 @@ let test_a_union_of_five_is_described () =
     "a branch each" 5
     (List.length (items (member [ "anyOf" ] doc)))
 
-(* A kind names one component: two different descriptions under it are an
-   error that names it -- unless the second is only ever decoded, when it is
-   named apart. *)
+(* A kind names one component. A request's is [<Name>Input] exactly where
+   its description differs by direction, so a name never depends on what else
+   was walked, or in what order; two different descriptions under one name
+   are an error that names it. *)
 let thing_a =
   Wiretype.Object.map ~kind:"thing" Fun.id
   |> Wiretype.Object.mem "a" Wiretype.int ~enc:Fun.id
@@ -301,21 +368,61 @@ let thing_b =
   |> Wiretype.Object.mem "b" Wiretype.string ~enc:Fun.id
   |> Wiretype.Object.finish
 
+type account = { id : int; email : string }
+
+let account =
+  Wiretype.Object.map ~kind:"account" (fun id email -> { id; email })
+  |> Wiretype.Object.mem "id" Wiretype.int ~access:`Read_only ~absent:0
+       ~enc:(fun a -> a.id)
+  |> Wiretype.Object.mem "email" Wiretype.string ~enc:(fun a -> a.email)
+  |> Wiretype.Object.finish
+
 let test_a_kind_names_one_description () =
-  let ctx = S.create () in
-  ignore (S.walk ctx S.Encode ~at:"one" thing_a : S.t);
-  ignore (S.walk ctx S.Encode ~at:"other" thing_b : S.t);
+  let walk order =
+    let ctx = S.create () in
+    let roots = List.map (fun dir -> S.walk ctx dir ~at:"a" account) order in
+    (List.map fst (S.components ctx), roots, error_lines ctx)
+  in
+  let names, roots, errors = walk [ S.Encode; S.Decode ] in
+  Alcotest.(check (list string))
+    "an answer and a request"
+    [ "Account"; "AccountInput" ]
+    names;
+  Alcotest.(check (list string)) "and no error" [] errors;
   Alcotest.(check bool)
-    "naming it" true
-    (List.exists (contains ~sub:"Thing") (S.errors ctx));
-  let ctx = S.create () in
-  ignore (S.walk ctx S.Encode ~at:"answer" thing_a : S.t);
-  Alcotest.(check bool)
-    "a decoded one is named apart" true
-    (match S.walk ctx S.Decode ~at:"body" thing_b with
-    | S.Ref "ThingInput" -> true
+    "each referred to by its own name" true
+    (match roots with
+    | [ S.Ref "Account"; S.Ref "AccountInput" ] -> true
     | _ -> false);
-  Alcotest.(check (list string)) "and is no error" [] (S.errors ctx)
+  let names, _, errors = walk [ S.Decode; S.Encode ] in
+  Alcotest.(check (list string))
+    "the same, whichever is walked first"
+    [ "AccountInput"; "Account" ]
+    names;
+  Alcotest.(check (list string)) "and still no error" [] errors;
+  List.iter
+    (fun (first, second) ->
+      let ctx = S.create () in
+      ignore (S.walk ctx first ~at:"one" thing_a : S.t);
+      ignore (S.walk ctx second ~at:"other" thing_b : S.t);
+      Alcotest.(check bool)
+        "two descriptions under one kind, naming it" true
+        (List.exists (contains ~sub:"Thing") (error_lines ctx)))
+    [ (S.Encode, S.Encode); (S.Encode, S.Decode); (S.Decode, S.Decode) ];
+  let ctx = S.create () in
+  ignore
+    (S.walk ctx S.Encode ~at:"code"
+       (Wiretype.Object.map ~kind:"2fa code" Fun.id
+       |> Wiretype.Object.mem "a" Wiretype.int ~enc:Fun.id
+       |> Wiretype.Object.finish)
+      : S.t);
+  Alcotest.(check (list string))
+    "a kind that names no identifier"
+    [
+      "code: The kind \"2fa code\" names no component, since \"2faCode\" does \
+       not begin with a letter. (kind_not_a_name)";
+    ]
+    (error_lines ctx)
 
 (* A bound and a kind are the schema's as they are the decoder's, so the
    browser checks what the server will refuse. *)
@@ -405,6 +512,8 @@ let () =
             test_what_is_loose_is_reported;
           Alcotest.test_case "a kind names one description" `Quick
             test_a_kind_names_one_description;
+          Alcotest.test_case "what the reader refuses" `Quick
+            test_what_the_reader_refuses;
           Alcotest.test_case "bounds and kinds are said" `Quick
             test_bounds_and_kinds_are_said;
         ] );

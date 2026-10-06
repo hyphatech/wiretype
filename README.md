@@ -48,11 +48,13 @@ quantity: This must be at most 99. (too_large)
 note: This must be text, not a number. (unexpected_type)
 ```
 
-The same description, as the schemas a client reads:
+The same description, as the schemas a client reads -- an answer here;
+walked as a request (`Decode`) it is `LineInput`, whose `note` may be
+`null`:
 
 ```ocaml
 let ctx = J.Schema.create ()
-let root = J.Schema.walk ctx Decode ~at:"line" line_json
+let root = J.Schema.walk ctx Encode ~at:"line" line_json
 let json_schema = J.Schema.Json_schema.document (J.Schema.components ctx) root
 let zod = J.Schema.Zod.components (J.Schema.components ctx)
 ```
@@ -63,7 +65,7 @@ export const LineSchema = z.object({
   sku: z.string(),
   /** how many */
   quantity: z.int().check(z.gte(1), z.lte(99)),
-  note: z.optional(z.nullable(z.string().check(z.maxLength(200)))),
+  note: z.optional(z.string().check(z.maxLength(200))),
 });
 export type Line = z.infer<typeof LineSchema>;
 ```
@@ -73,10 +75,13 @@ export type Line = z.infer<typeof LineSchema>;
 The deriver writes what you could write yourself:
 
 ```ocaml
-J.Object.map ~kind:"line" (fun sku quantity note -> { sku; quantity; note })
+J.Object.map ~kind:"line" ~doc:"A line of an order." (fun sku quantity note ->
+    { sku; quantity; note })
 |> J.Object.mem "sku" J.string ~enc:(fun l -> l.sku)
-|> J.Object.mem "quantity" (J.int_bounded ~min:1 ~max:99 ()) ~enc:(fun l -> l.quantity)
-|> J.Object.opt_mem "note" J.string ~enc:(fun l -> l.note)
+|> J.Object.mem "quantity" (J.int_bounded ~min:1 ~max:99 ()) ~doc:"how many"
+     ~enc:(fun l -> l.quantity)
+|> J.Object.opt_mem "note" (J.string_bounded ~max_length:200 ()) ~enc:(fun l ->
+    l.note)
 |> J.Object.finish
 ```
 
@@ -97,6 +102,9 @@ walk it too.
   twice is refused, as I-JSON has it. JSONTestSuite runs whole.
 - **Absent and `null` said once**: `opt_mem` reads either as `None` and
   writes `None` by leaving the member out; `mem ~absent` gives a default.
+- **What it writes, it reads**: text that is not UTF-8, a member written
+  twice or nesting past 512 is refused on writing, at its path with a
+  code (`J.Unwritable`), as a kind's value it cannot spell is.
 
 ## Kinds
 
@@ -118,7 +126,9 @@ and accepts no string that check refuses.
 `Wiretype.Schema` walks a description once and prints it as JSON Schema
 2020-12 and as zod/mini, so the two cannot disagree. A named object is a
 component; a request's schema and an answer's differ where a member is
-read-only, write-only or optional. Bounds -- ranges, `multiple_of`,
+read-only, write-only or optional, and the request's is then
+`<Name>Input`, whatever else is walked. An object that refuses members it
+does not describe says so in both. Bounds -- ranges, `multiple_of`,
 lengths, counts -- are in both.
 
 ## The deriver

@@ -17,8 +17,9 @@ let allowed_opens =
     ("ppx/ppx_wiretype.ml", "Ast_pattern");
   ]
 
-(* A banned identifier allowed where the [.mli] documents it: a case of a
-   union is a constant written in source, so one that is no object raises. *)
+(* A banned identifier allowed where the [.mli] documents it: a description
+   is a constant written in source, so one that can mean nothing raises
+   where it is built. *)
 let allowed_banned = [ ("src/wiretype.ml", "invalid_arg") ]
 
 (* An identifier, dotted path included, and the reason it is refused. *)

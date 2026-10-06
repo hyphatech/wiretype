@@ -11,6 +11,8 @@ module J = Wiretype
 module P = J.Problem
 module V = J.Value
 
+(* What is written, or the line a log would say of what could not be. *)
+let written shape v = Result.map_error J.Unwritable.to_string (J.encode shape v)
 let dir = "json-test-suite"
 
 let read file =
@@ -23,7 +25,7 @@ let files prefix =
          String.starts_with ~prefix f && Filename.check_suffix f ".json")
        (Array.to_list (Sys.readdir dir)))
 
-let accepts text = Result.is_ok (J.decode J.value text)
+let accepts text = Result.is_ok (J.decode J.Value.json text)
 
 (* Two [y_] files the suite accepts are refused by decision: a member named
    twice, which I-JSON (RFC 7493 §2.3) forbids, because two readers that keep
@@ -96,7 +98,7 @@ let suite_rows () =
 
 (* A number that overflows is refused, not read as infinity. *)
 let overflow () =
-  match J.decode J.value "1e400" with
+  match J.decode J.Value.json "1e400" with
   | Error [ { code = P.Too_large; _ } ] -> ()
   | Ok _ | Error _ -> Alcotest.fail "1e400 should be too large"
 
@@ -178,14 +180,14 @@ let absent_and_null () =
     (read {|{"x":1,"y":2,"note":"hi"}|});
   Alcotest.(check (result string string))
     "None is left out, a default written" (Ok {|{"x":1,"y":2,"tags":[]}|})
-    (J.encode move { x = 1; y = 2; note = None; tags = [] });
+    (written move { x = 1; y = 2; note = None; tags = [] });
   let nullable =
     J.Object.map (fun n -> n)
     |> J.Object.mem "n" (J.nullable J.int) ~enc:Fun.id
     |> J.Object.finish
   in
   Alcotest.(check (result string string))
-    "a nullable member writes null" (Ok {|{"n":null}|}) (J.encode nullable None);
+    "a nullable member writes null" (Ok {|{"n":null}|}) (written nullable None);
   Alcotest.(check (list problem))
     "and must be there"
     [ ("n", "required") ]
@@ -205,7 +207,29 @@ let unknown () =
     [ ("b", "unknown_member") ]
     (problems {|{"a":1,"b":2}|} strict)
 
+(* A value, a step, and whether the value is a multiple of it: the same rows
+   are kinds.test.ts's, which runs zod's multipleOf over them. *)
+let multiple_rows =
+  [
+    ("19.99", 0.01, true);
+    ("0.3", 0.1, true);
+    ("2.03", 0.07, true);
+    ("0.35", 0.1, false);
+    ("1e-7", 1e-8, true);
+    ("10", 2.5, true);
+    ("7", 2.5, false);
+    ("123456789.12", 0.01, true);
+    ("0.1", 0.3, false);
+  ]
+
 let numbers () =
+  List.iter
+    (fun (text, step, expected) ->
+      Alcotest.(check bool)
+        (Printf.sprintf "%s a multiple of %g" text step)
+        expected
+        (Result.is_ok (J.decode (J.number_bounded ~multiple_of:step ()) text)))
+    multiple_rows;
   let ok shape text = J.decode shape text in
   Alcotest.(check (result int reject))
     "an integer past 2^53, exactly" (Ok 9007199254740993)
@@ -257,17 +281,23 @@ let strings () =
   Alcotest.(check (list problem))
     "a raw control character"
     [ ("", "syntax") ]
-    (problems "\"a\nb\"" J.string)
+    (problems "\"a\nb\"" J.string);
+  Alcotest.(check (result reject string))
+    "a bad escape is said at its first digit"
+    (Error
+       "the document: This is not JSON: a hexadecimal digit was expected at \
+        byte 3, and 'Z' was found. (syntax)")
+    (Result.map_error P.list_to_string (J.decode J.string {|"\uZZZZ"|}))
 
 let nesting () =
   let deep n = String.make n '[' ^ String.make n ']' in
   Alcotest.(check bool)
     "512 levels" true
-    (Result.is_ok (J.decode J.value (deep 512)));
+    (Result.is_ok (J.decode J.Value.json (deep 512)));
   Alcotest.(check (list problem))
     "513 are too deep"
     [ (String.concat "" (List.init 512 (fun _ -> "[0]")), "too_deep") ]
-    (problems (deep 513) J.value)
+    (problems (deep 513) J.Value.json)
 
 type colour = Black | White
 
@@ -278,7 +308,7 @@ let colour =
 
 let enums () =
   Alcotest.(check (result string string))
-    "written as its word" (Ok {|"white"|}) (J.encode colour White);
+    "written as its word" (Ok {|"white"|}) (written colour White);
   Alcotest.(check (list problem))
     "a word it does not have"
     [ ("", "unknown_word") ]
@@ -343,10 +373,118 @@ let unions () =
     (problems {|{"by":"b","pass":"yes"}|} turn);
   Alcotest.(check (result string string))
     "the tag first, then the rest" (Ok {|{"pass":true,"by":"w"}|})
-    (J.encode turn { by = "w"; play = Pass });
+    (written turn { by = "w"; play = Pass });
   Alcotest.(check (result string string))
     "a tag left out when it may be" (Ok {|{"by":"b","row":1,"col":2}|})
-    (J.encode turn { by = "b"; play = Play (1, 2) })
+    (written turn { by = "b"; play = Play (1, 2) });
+  let note =
+    J.Object.Case.map "note"
+      (J.Object.map Fun.id
+      |> J.Object.mem "data" J.Value.json ~enc:Fun.id
+      |> J.Object.error_unknown |> J.Object.finish)
+      ~dec:Fun.id
+  in
+  let event =
+    J.Object.map Fun.id
+    |> J.Object.case_mem "type" J.string ~enc:Fun.id
+         ~enc_case:(J.Object.Case.value note)
+         [ J.Object.Case.make note ]
+    |> J.Object.finish
+  in
+  Alcotest.(check (list problem))
+    "a member given twice inside a case's member, said once"
+    [ ("data.x", "repeated_member") ]
+    (problems {|{"type":"note","data":{"x":1,"x":2}}|} event);
+  Alcotest.(check (list problem))
+    "and inside a member nobody describes, said once"
+    [ ("z.x", "repeated_member"); ("z", "unknown_member") ]
+    (problems {|{"type":"note","data":1,"z":{"x":1,"x":2}}|} event);
+  Alcotest.(check (list problem))
+    "a case that refuses a member it does not describe"
+    [ ("z", "unknown_member") ]
+    (problems {|{"type":"note","data":1,"z":2}|} event)
+
+(* A description that can mean nothing is refused where it is built. *)
+let malformed_descriptions () =
+  let refused name message f =
+    Alcotest.check_raises name (Invalid_argument message) (fun () ->
+        ignore (f ()))
+  in
+  let obj () = J.Object.map (fun a -> a) in
+  let case tag =
+    J.Object.Case.map tag (J.Object.map () |> J.Object.finish) ~dec:Fun.id
+  in
+  refused "a multiple of zero"
+    "Wiretype.int_bounded: multiple_of is 0, and must be positive" (fun () ->
+      J.int_bounded ~multiple_of:0 ());
+  refused "a negative multiple"
+    "Wiretype.int64_bounded: multiple_of is -5, and must be positive" (fun () ->
+      J.int64_bounded ~multiple_of:(-5L) ());
+  refused "a multiple that is not a number"
+    "Wiretype.number_bounded: multiple_of is nan, and must be positive"
+    (fun () -> J.number_bounded ~multiple_of:Float.nan ());
+  refused "two values, one word" "Wiretype.enum: two values are written \"a\""
+    (fun () -> J.enum (fun _ -> "a") [ 1; 2 ]);
+  refused "a member described twice"
+    "Wiretype.Object.finish: the member \"a\" is described twice" (fun () ->
+      J.Object.map (fun a _ -> a)
+      |> J.Object.mem "a" J.int ~enc:Fun.id
+      |> J.Object.opt_mem "a" J.int ~enc:Option.some
+      |> J.Object.finish);
+  refused "a member that is the union's tag"
+    "Wiretype.Object.finish: the member \"t\" is described twice" (fun () ->
+      J.Object.map (fun _ c -> c)
+      |> J.Object.mem "t" J.int ~enc:(fun _ -> 0)
+      |> J.Object.case_mem "t" J.string ~enc:Fun.id
+           ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
+           [ J.Object.Case.make (case "a") ]
+      |> J.Object.finish);
+  refused "a member the object and its case both describe"
+    "Wiretype.Object.finish: the member \"a\" is described twice: by the \
+     object and by its case \"c\"" (fun () ->
+      let c =
+        J.Object.Case.map "c"
+          (obj () |> J.Object.mem "a" J.int ~enc:Fun.id |> J.Object.finish)
+          ~dec:Fun.id
+      in
+      J.Object.map (fun _ c -> c)
+      |> J.Object.mem "a" J.int ~enc:Fun.id
+      |> J.Object.case_mem "t" J.string ~enc:Fun.id
+           ~enc_case:(J.Object.Case.value c)
+           [ J.Object.Case.make c ]
+      |> J.Object.finish);
+  refused "two cases tagged alike"
+    "Wiretype.Object.finish: two cases of the union \"t\" are tagged \"a\""
+    (fun () ->
+      obj ()
+      |> J.Object.case_mem "t" J.string ~enc:Fun.id
+           ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
+           [ J.Object.Case.make (case "a"); J.Object.Case.make (case "a") ]
+      |> J.Object.finish);
+  refused "two unions"
+    "Wiretype.Object.finish: \"t1\" and \"t2\" are each a union's tag, and an \
+     object has one union" (fun () ->
+      J.Object.map (fun a _ -> a)
+      |> J.Object.case_mem "t1" J.string ~enc:Fun.id
+           ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
+           [ J.Object.Case.make (case "a") ]
+      |> J.Object.case_mem "t2" J.string ~enc:Fun.id
+           ~enc_case:(fun () -> J.Object.Case.value (case "b") ())
+           [ J.Object.Case.make (case "b") ]
+      |> J.Object.finish);
+  refused "a case with a union of its own"
+    "Wiretype.Object.Case.map: a case is an object with no union of its own, \
+     since an object has one" (fun () ->
+      J.Object.Case.map "outer"
+        (obj ()
+        |> J.Object.case_mem "inner" J.string ~enc:Fun.id
+             ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
+             [ J.Object.Case.make (case "a") ]
+        |> J.Object.finish)
+        ~dec:Fun.id);
+  refused "a case that is no object"
+    "Wiretype.Object.Case.map: a case is an object" (fun () ->
+      J.Object.Case.map "a" J.int ~dec:Fun.id)
 
 (* ------------------------------------------------------------------ *)
 (* The ready-made kinds *)
@@ -354,8 +492,9 @@ let unions () =
 (* Each row is a string, whether the server takes it, and whether the
    browser's zod check does; the same rows are written out in the web suite's
    kinds.test.ts, which runs zod over them. The two answers are equal but
-   where the browser is the looser -- a URI -- so the server never takes what
-   the browser refuses. *)
+   where the browser is the looser -- a URI, an instant past the years 0000
+   to 9999 once in UTC, a duration past a hundred thousand years -- so the
+   server never takes what the browser refuses. *)
 let instant_rows =
   [
     ("2026-09-30T12:00:00Z", true, true);
@@ -364,6 +503,8 @@ let instant_rows =
     ("0000-01-01T00:00:00Z", true, true);
     ("2024-02-29T23:59:59-23:59", true, true);
     ("9999-12-31T23:59:59.999Z", true, true);
+    ("9999-12-31T23:59:59-00:01", false, true);
+    ("0000-01-01T00:00:00+00:01", false, true);
     ("2026-09-30t12:00:00Z", false, false);
     ("2026-09-30T12:00:00z", false, false);
     ("2026-09-30T12:00Z", false, false);
@@ -408,6 +549,12 @@ let duration_rows =
     ("1D", false, false);
     ("PT1.5M", false, false);
     ("P1DT", false, false);
+    ("P36525000D", true, true);
+    ("P36525001D", false, true);
+    ("P99999999999D", false, true);
+    ("P1000000000000W", false, true);
+    ("PT3000000000000000H", false, true);
+    ("PT9999999999999999S", false, true);
   ]
 
 let uuid_rows =
@@ -534,6 +681,59 @@ let malformed () =
     [ ("", "malformed") ]
     (problems {|"2026-02-30"|} J.date)
 
+(* Whatever value a kind can write, it reads back as itself. *)
+let round_trip name shape gen ~equal ~print =
+  QCheck.Test.make ~count:2000 ~name:(name ^ " reads back what it writes")
+    (QCheck.make ~print gen) (fun v ->
+      match written shape v with
+      | Error m ->
+          QCheck.Test.fail_reportf "%s cannot be written: %s" (print v) m
+      | Ok s -> (
+          match J.decode shape s with
+          | Ok w -> equal v w
+          | Error ps -> QCheck.Test.fail_report (P.list_to_string ps)))
+
+let instant_of text =
+  match J.decode J.instant (V.to_string (V.String text)) with
+  | Ok t -> t
+  | Error ps -> Alcotest.fail (P.list_to_string ps)
+
+let kinds_round_trip =
+  let open QCheck.Gen in
+  let bytes = string_size ~gen:char (int_bound 40) in
+  let hex =
+    string_size
+      ~gen:(oneof_list (List.init 16 (fun i -> "0123456789abcdef".[i])))
+      (return 32)
+  in
+  let uuid (h, version, variant) =
+    let part i n = String.sub h i n in
+    Printf.sprintf "%s-%s-%c%s-%c%s-%s" (part 0 8) (part 8 4)
+      "12345678".[version] (part 13 3) "89ab".[variant] (part 17 3) (part 20 12)
+  in
+  let date (y, m, d) = Printf.sprintf "%04d-%02d-%02d" y m d in
+  let same_date (y, m, d) (y', m', d') = y = y' && m = m' && d = d' in
+  [
+    round_trip "an instant" J.instant
+      (int_range
+         (instant_of "0000-01-01T00:00:00Z")
+         (instant_of "9999-12-31T23:59:59.999Z"))
+      ~equal:Int.equal ~print:string_of_int;
+    round_trip "a date" J.date
+      (triple (int_range 0 9999) (int_range 1 12) (int_range 1 28))
+      ~equal:same_date ~print:date;
+    round_trip "a duration" J.duration
+      (oneof [ int_range 0 3_155_760_000_000_000; int_range 0 100_000_000 ])
+      ~equal:Int.equal ~print:string_of_int;
+    round_trip "a uuid" (J.uuid ())
+      (map uuid (triple hex (int_bound 7) (int_bound 3)))
+      ~equal:String.equal ~print:Fun.id;
+    round_trip "base64" J.base64 bytes ~equal:String.equal
+      ~print:(Printf.sprintf "%S");
+    round_trip "base64url" J.base64url bytes ~equal:String.equal
+      ~print:(Printf.sprintf "%S");
+  ]
+
 (* One value has one spelling: what a kind reads it writes back as itself. *)
 let spellings () =
   let round shape text expected =
@@ -541,7 +741,7 @@ let spellings () =
       text (Ok expected)
       (match J.decode shape (V.to_string (V.String text)) with
       | Error _ -> Error "refused"
-      | Ok v -> J.encode shape v)
+      | Ok v -> written shape v)
   in
   round J.instant "2026-09-30T12:00:00Z" {|"2026-09-30T12:00:00.000Z"|};
   round J.instant "2026-09-30T17:30:00.123999+05:30"
@@ -563,11 +763,14 @@ let spellings () =
           (J.decode J.instant {|"1970-01-01T00:00:00Z"|})));
   Alcotest.(check (result string string))
     "a date past the years is not written"
-    (Error "10000-1-1 is not a date of the years 0000 to 9999.")
-    (J.encode J.date (10000, 1, 1));
+    (Error
+       "the value: 10000-1-1 is not a date of the years 0000 to 9999. \
+        (unspellable)")
+    (written J.date (10000, 1, 1));
   Alcotest.(check (result string string))
-    "nor a negative duration" (Error "A duration is never negative.")
-    (J.encode J.duration (-1))
+    "nor a negative duration"
+    (Error "the value: A duration is never negative. (unspellable)")
+    (written J.duration (-1))
 
 (* Whether [s] holds [sub]: what the schema rows look for in a document. *)
 module Astring_contains = struct
@@ -612,7 +815,7 @@ let derived () =
   let ok shape text =
     Result.map_error (List.map P.to_string) (J.decode shape text)
   in
-  let enc shape v = J.encode shape v in
+  let enc shape v = written shape v in
   Alcotest.(check (result string (list string)))
     "a record, its defaults, key and keyword"
     (Ok {|{"row":3,"col":4,"as":"black","size":19}|})
@@ -671,6 +874,137 @@ let derived_schema () =
     "an enum's words" {|z.enum(["black_side", "white_side", "not_a_side"])|}
     (J.Schema.Zod.of_t side)
 
+(* An option is described as any member is: read-only, with examples. Any
+   JSON is described by [Value.json], through whatever alias names it, and an
+   array whatever [Array] is in scope. *)
+module Profile = struct
+  module Array = struct
+    let of_list (_ : int list) = "not Stdlib's"
+  end
+
+  type t = {
+    nick : string option; [@read_only] [@examples [ "ann" ]]
+    extra : J.Value.t;
+    scores : int array;
+  }
+  [@@deriving wiretype]
+end
+
+let derived_options () =
+  Alcotest.(check string)
+    "the array description is derived where Array is not Stdlib's"
+    "not Stdlib's" (Profile.Array.of_list []);
+  let walk dir =
+    let ctx = J.Schema.create () in
+    let root = J.Schema.walk ctx dir ~at:"profile" Profile.json in
+    J.Value.to_string
+      (J.Schema.Json_schema.document (J.Schema.components ctx) root)
+  in
+  Alcotest.(check bool)
+    "an answer has it, with its example" true
+    (Astring_contains.contains (walk J.Schema.Encode) {|"examples":["ann"]|});
+  Alcotest.(check bool)
+    "a request has it not" false
+    (Astring_contains.contains (walk J.Schema.Decode) {|"nick"|});
+  Alcotest.(check (result string reject))
+    "any JSON and an array, read and written"
+    (Ok {|{"nick":"ann","extra":{"a":[1]},"scores":[1,2]}|})
+    (Result.bind
+       (Result.map_error P.list_to_string
+          (J.decode Profile.json
+             {|{"nick":"ann","extra":{"a":[1]},"scores":[1,2]}|}))
+       (written Profile.json))
+
+(* Any text a document may hold: code points from all of Unicode but the
+   surrogates, as UTF-8. *)
+let unicode n =
+  QCheck.Gen.(
+    map
+      (fun cps ->
+        let b = Buffer.create 16 in
+        List.iter (fun c -> Buffer.add_utf_8_uchar b (Uchar.of_int c)) cps;
+        Buffer.contents b)
+      (list_size (int_bound n)
+         (oneof
+            [
+              int_range 0 0x7F; int_range 0x80 0xD7FF; int_range 0xE000 0x10FFFF;
+            ])))
+
+(* What cannot be written is said at its place, with its code: what [encode]
+   writes, [decode] reads. *)
+let unwritable () =
+  let refused name shape v expected =
+    Alcotest.(check (result string string))
+      name (Error expected)
+      (Result.map_error
+         (fun (e : J.Unwritable.t) ->
+           P.path e.at ^ " " ^ J.Unwritable.code_to_string e.code)
+         (J.encode shape v))
+  in
+  refused "text that is not UTF-8" J.string "\xff" " not_utf8";
+  refused "at its member" move
+    { x = 0; y = 0; note = Some "a\xc3"; tags = [] }
+    "note not_utf8";
+  refused "a member given twice in any JSON" J.Value.json
+    (V.Object [ ("a", V.Array [ V.Object [ ("b", V.Null); ("b", V.Null) ] ]) ])
+    "a[0].b repeated_member";
+  refused "a map's name written twice" (J.dict J.string J.int)
+    [ ("a", 1); ("a", 2) ]
+    "[1] repeated_member";
+  refused "a map's name that is no text" (J.dict J.int J.int)
+    [ (1, 1) ]
+    "[0] name_not_text";
+  refused "a description made only to read"
+    (J.list (J.map ~dec:Fun.id J.int))
+    [ 1 ] "[0] read_only";
+  let rec deep n = if n = 0 then V.Null else V.Array [ deep (n - 1) ] in
+  Alcotest.(check (result unit string))
+    "nested as deep as a reader reads" (Ok ())
+    (Result.map (fun _ -> ()) (written J.Value.json (deep 512)));
+  refused "and no deeper" J.Value.json (deep 513)
+    (String.concat "" (List.init 512 (fun _ -> "[0]")) ^ " too_deep")
+
+(* An object, a union, a map and a tuple, written and read back: what is
+   read is written as it was. *)
+type mark = Dot | Note of { text : string } [@@deriving wiretype]
+
+type sample = {
+  id : int;
+  tags : (string * int) list; [@dict]
+  at : int * float;
+  mark : mark;
+  label : string option;
+}
+[@@deriving wiretype]
+
+let descriptions_round_trip =
+  let open QCheck.Gen in
+  let mark =
+    oneof [ return Dot; map (fun text -> Note { text }) (unicode 6) ]
+  in
+  let tags =
+    map
+      (List.sort_uniq (fun (a, _) (b, _) -> String.compare a b))
+      (list_size (int_bound 4) (pair (unicode 4) nat_small))
+  in
+  let sample =
+    map
+      (fun (id, tags, at, (mark, label)) -> { id; tags; at; mark; label })
+      (quad int tags
+         (pair int (float_bound_inclusive 1e9))
+         (pair mark (option (unicode 6))))
+  in
+  QCheck.Test.make ~count:2000 ~name:"a description reads back what it writes"
+    (QCheck.make sample) (fun v ->
+      match written sample_json v with
+      | Error m -> QCheck.Test.fail_report m
+      | Ok s -> (
+          match J.decode sample_json s with
+          | Error ps -> QCheck.Test.fail_report (P.list_to_string ps)
+          | Ok w ->
+              Result.equal ~ok:String.equal ~error:String.equal (Ok s)
+                (written sample_json w)))
+
 (* A tuple is a JSON array of exactly its items, each by its own description:
    another length is the list's problem, a wrong item its own at its index. *)
 type waypoint = { at : int * int; label : string * float } [@@deriving wiretype]
@@ -683,7 +1017,7 @@ let tuples () =
     (J.decode pair {|[1, "a"]|});
   Alcotest.(check (result string string))
     "written" (Ok {|[1,"a"]|})
-    (J.encode pair (1, "a"));
+    (written pair (1, "a"));
   Alcotest.(check (list problem))
     "too few"
     [ ("", "too_few") ]
@@ -702,14 +1036,14 @@ let tuples () =
     (problems "{}" pair);
   Alcotest.(check (result string string))
     "three, and any length built as an object is" (Ok {|[1,2.5,true]|})
-    (J.encode (J.tuple3 J.int J.number J.bool) (1, 2.5, true));
+    (written (J.tuple3 J.int J.number J.bool) (1, 2.5, true));
   Alcotest.(check (result string string))
     "derived" (Ok {|{"at":[3,4],"label":["tengen",0.5]}|})
     (Result.bind
        (Result.map_error
           (fun _ -> "refused")
           (J.decode waypoint_json {|{"at":[3,4],"label":["tengen",0.5]}|}))
-       (J.encode waypoint_json));
+       (written waypoint_json));
   let ctx = J.Schema.create () in
   let t = J.Schema.walk ctx J.Schema.Encode ~at:"pair" pair in
   Alcotest.(check string)
@@ -736,8 +1070,8 @@ let dicts () =
     (J.decode scores {|{"b":2,"a":1}|});
   Alcotest.(check (result string string))
     "written, in the list's order" (Ok {|{"b":2,"a":1}|})
-    (J.encode scores [ ("b", 2); ("a", 1) ]);
-  Alcotest.(check (result string string)) "empty" (Ok "{}") (J.encode scores []);
+    (written scores [ ("b", 2); ("a", 1) ]);
+  Alcotest.(check (result string string)) "empty" (Ok "{}") (written scores []);
   Alcotest.(check (list problem))
     "a wrong value, at its member"
     [ ("a", "unexpected_type"); ("c", "unexpected_type") ]
@@ -748,7 +1082,7 @@ let dicts () =
     (problems {|{"a":1,"a":2}|} scores);
   Alcotest.(check bool)
     "a name written twice" true
-    (Result.is_error (J.encode scores [ ("a", 1); ("a", 2) ]));
+    (Result.is_error (written scores [ ("a", 1); ("a", 2) ]));
   Alcotest.(check (list problem))
     "not an object"
     [ ("", "unexpected_type") ]
@@ -776,7 +1110,7 @@ let dicts () =
     (problems {|{"a":1,"b":2,"c":3}|} bounded);
   Alcotest.(check bool)
     "a key not written as text" true
-    (Result.is_error (J.encode (J.dict J.int J.int) [ (1, 1) ]));
+    (Result.is_error (written (J.dict J.int J.int) [ (1, 1) ]));
   Alcotest.(check (result string string))
     "derived" (Ok {|{"scores":{"x":1},"by_side":{"black_side":0.5}}|})
     (Result.bind
@@ -784,7 +1118,7 @@ let dicts () =
           (fun _ -> "refused")
           (J.decode ledger_json
              {|{"scores":{"x":1},"by_side":{"black_side":0.5}}|}))
-       (J.encode ledger_json));
+       (written ledger_json));
   Alcotest.(check (list problem))
     "derived, bounded"
     [ ("scores", "too_few") ]
@@ -794,7 +1128,7 @@ let dicts () =
     let s = J.Schema.walk ctx J.Schema.Encode ~at:"map" t in
     ( V.to_string (J.Schema.Json_schema.of_t s),
       J.Schema.Zod.of_t s,
-      J.Schema.errors ctx )
+      List.map J.Schema.error_to_string (J.Schema.errors ctx) )
   in
   let json, zod, errors = schema scores in
   Alcotest.(check string)
@@ -1036,7 +1370,7 @@ let idna_rows () =
 (* The bytes a document is written as: minified, a double in the fewest
    digits that read back as itself, and text escaped as RFC 8259 asks. *)
 let bytes () =
-  let enc v = J.encode J.value v in
+  let enc v = written J.Value.json v in
   Alcotest.(check (result string string))
     "numbers" (Ok "[0.1,0.30000000000000004,3,-0,1e+21,null]")
     (enc
@@ -1049,11 +1383,11 @@ let bytes () =
     (enc (V.String "q\"b\\n\nc\001d\127é"));
   Alcotest.(check (result string string))
     "an int past 2^53, as its digits" (Ok "9007199254740993")
-    (J.encode J.int 9007199254740993)
+    (written J.int 9007199254740993)
 
 let test_numbers_are_written_as_typed () =
   match
-    Wiretype.encode
+    written
       Wiretype.(list number)
       [
         0.1; 7.5; -0.76; 1.0; -0.; 0.1 +. 0.2; 1. /. 3.; 1e21; 5e-324; Float.nan;
@@ -1072,7 +1406,7 @@ let test_a_number_reads_back_as_itself =
     QCheck.(map Int64.float_of_bits int64)
     (fun f ->
       QCheck.assume (Float.is_finite f);
-      match Wiretype.encode Wiretype.number f with
+      match written Wiretype.number f with
       | Ok s -> Float.equal (float_of_string s) f
       | Error m -> QCheck.Test.fail_report m)
 
@@ -1081,7 +1415,7 @@ let test_a_number_reads_back_as_itself =
    whole wherever a boundary falls. *)
 let test_a_value_longer_than_the_buffer () =
   let times n s = String.concat "" (List.init n (fun _ -> s)) in
-  match Wiretype.encode Wiretype.string (times 600 {|ab"cd|}) with
+  match written Wiretype.string (times 600 {|ab"cd|}) with
   | Error m -> Alcotest.fail m
   | Ok s ->
       Alcotest.(check string)
@@ -1093,7 +1427,7 @@ let test_a_value_longer_than_the_buffer () =
 (* A double's spelling *)
 
 let spell f =
-  match J.encode J.number f with Ok s -> s | Error e -> Alcotest.fail e
+  match written J.number f with Ok s -> s | Error e -> Alcotest.fail e
 
 (* A number's significant digits, whatever its layout: [1.50e+3] is [15]. *)
 let significant s =
@@ -1144,7 +1478,8 @@ let finite =
 
 let test_a_double_is_spelt_shortest =
   QCheck.Test.make ~count:200_000
-    ~name:"a double's digits are its fewest, as before" finite (fun f ->
+    ~name:"a double's digits are its fewest, as a search for them finds" finite
+    (fun f ->
       QCheck.assume
         (Float.is_finite f && not (Float.is_integer f && Float.abs f < 0x1p53));
       judged f)
@@ -1201,7 +1536,7 @@ let referee =
             map (fun b -> V.Bool b) bool;
             map (fun i -> V.Number (float_of_int i)) int_small;
             map (fun f -> V.Number f) (float_bound_inclusive 1e6);
-            map (fun s -> V.String s) (string_size ~gen:printable (int_bound 8));
+            map (fun s -> V.String s) (unicode 8);
           ]
       else
         oneof_weighted
@@ -1213,10 +1548,7 @@ let referee =
                 (fun l ->
                   V.Object
                     (List.sort_uniq (fun (a, _) (b, _) -> String.compare a b) l))
-                (list_size (int_bound 4)
-                   (pair
-                      (string_size ~gen:printable (int_bound 4))
-                      (gen (n / 2)))) );
+                (list_size (int_bound 4) (pair (unicode 4) (gen (n / 2)))) );
           ])
   in
   let rec yo = function
@@ -1240,12 +1572,12 @@ let referee =
   Test.make ~count:500 ~name:"yojson reads back what we write, and so do we"
     (make ~print:V.to_string (Gen.sized gen))
     (fun v ->
-      match J.encode J.value v with
+      match written J.Value.json v with
       | Error _ -> false
       | Ok s -> (
           same (Yojson.Safe.from_string s) (yo v)
           &&
-          match J.decode J.value s with
+          match J.decode J.Value.json s with
           | Ok w -> V.equal v w
           | Error _ -> false))
 
@@ -1269,9 +1601,13 @@ let () =
           Alcotest.test_case "unions" `Quick unions;
           Alcotest.test_case "tuples" `Quick tuples;
           Alcotest.test_case "maps" `Quick dicts;
+          Alcotest.test_case "malformed descriptions" `Quick
+            malformed_descriptions;
         ] );
       ( "writing",
         [
+          Alcotest.test_case "what cannot be written" `Quick unwritable;
+          QCheck_alcotest.to_alcotest descriptions_round_trip;
           Alcotest.test_case "bytes" `Quick bytes;
           Alcotest.test_case "numbers as typed" `Quick
             test_numbers_are_written_as_typed;
@@ -1287,6 +1623,8 @@ let () =
         [
           Alcotest.test_case "values" `Quick derived;
           Alcotest.test_case "schema" `Quick derived_schema;
+          Alcotest.test_case "options, any JSON and arrays" `Quick
+            derived_options;
         ] );
       ( "kinds",
         [
@@ -1298,7 +1636,7 @@ let () =
           Alcotest.test_case "uuid" `Quick
             (kind_rows "uuid" (J.uuid ()) uuid_rows);
           Alcotest.test_case "uuid v7" `Quick
-            (kind_rows "uuid v7" (J.uuid ~version:7 ()) uuid7_rows);
+            (kind_rows "uuid v7" (J.uuid ~version:`V7 ()) uuid7_rows);
           Alcotest.test_case "base64" `Quick
             (kind_rows "base64" J.base64 base64_rows);
           Alcotest.test_case "base64url" `Quick
@@ -1310,5 +1648,6 @@ let () =
             idna_rows;
           Alcotest.test_case "malformed" `Quick malformed;
           Alcotest.test_case "spellings" `Quick spellings;
-        ] );
+        ]
+        @ List.map QCheck_alcotest.to_alcotest kinds_round_trip );
     ]

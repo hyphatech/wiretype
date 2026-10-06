@@ -5,10 +5,35 @@
 
 open Ppxlib
 
+(* Every error the expansion holds, as its message. *)
+let errors =
+  object
+    inherit [string list] Ast_traverse.fold as super
+
+    method! extension ext acc =
+      match ext with
+      | ( { txt = "ocaml.error"; _ },
+          PStr
+            [
+              {
+                pstr_desc =
+                  Pstr_eval
+                    ( { pexp_desc = Pexp_constant (Pconst_string (m, _, _)); _ },
+                      _ );
+                _;
+              };
+            ] ) ->
+          m :: acc
+      | _ -> super#extension ext acc
+  end
+
 let expand source =
   let structure = Parse.implementation (Lexing.from_string source) in
   match Driver.map_structure structure with
-  | expanded -> Ok (Format.asprintf "%a" Pprintast.structure expanded)
+  | expanded -> (
+      match errors#structure expanded [] with
+      | [] -> Ok (Format.asprintf "%a" Pprintast.structure expanded)
+      | ms -> Error (String.concat "\n" (List.rev ms)))
   | exception Location.Error e -> Error (Location.Error.message e)
 
 let contains s sub =
@@ -18,7 +43,7 @@ let contains s sub =
   in
   at 0
 
-(* An error is either raised or embedded in the output as [%ocaml.error]. *)
+(* A refusal is an error in the output, at its place. *)
 let refused source message () =
   let said = match expand source with Ok out -> out | Error m -> m in
   if not (contains said message) then
@@ -26,8 +51,7 @@ let refused source message () =
 
 let accepted source () =
   match expand source with
-  | Ok out when not (contains out "ocaml.error") -> ()
-  | Ok out -> Alcotest.failf "refused:\n%s" out
+  | Ok _ -> ()
   | Error m -> Alcotest.failf "refused: %s" m
 
 let () =
@@ -68,6 +92,48 @@ let () =
                "type t = { m : (string * int) list [@dict] [@min_items 1] } \
                 [@@deriving wiretype]"
                "a map is bounded by [@min_properties]");
+          Alcotest.test_case "a member named twice" `Quick
+            (refused
+               "type t = { a : int; b : int [@key \"a\"] } [@@deriving \
+                wiretype]"
+               "a and b are both the member \"a\"");
+          Alcotest.test_case "a member spelt twice" `Quick
+            (refused
+               "type t = { a_b : int; aB : int } [@@rename_all camel] \
+                [@@deriving wiretype]"
+               "a_b and aB are both the member \"aB\"");
+          Alcotest.test_case "a member that is the tag" `Quick
+            (refused
+               "type t = A of { type_ : string } | B [@@deriving wiretype]"
+               "type_ is the member \"type\", which is the union's tag");
+          Alcotest.test_case "every refusal in a file, and the rest derived"
+            `Quick (fun () ->
+              let source =
+                "type a = { f : int -> int } [@@deriving wiretype]\n\
+                 type b = { g : string [@min 1]; h : int [@max_length 2] } \
+                 [@@deriving wiretype]\n\
+                 type c = { i : int } [@@deriving wiretype]"
+              in
+              let structure =
+                Driver.map_structure
+                  (Parse.implementation (Lexing.from_string source))
+              in
+              Alcotest.(check int)
+                "three refusals" 3
+                (List.length (errors#structure structure []));
+              Alcotest.(check bool)
+                "c is still derived" true
+                (contains
+                   (Format.asprintf "%a" Pprintast.structure structure)
+                   "let c_json"));
+          Alcotest.test_case "read-only and write-only at once" `Quick
+            (refused
+               "type t = { a : int; [@read_only] [@write_only] } [@@deriving \
+                wiretype]"
+               "write [@read_only] or [@write_only], not both");
+          Alcotest.test_case "two constructors written alike" `Quick
+            (refused "type t = A | B [@name \"a\"] [@@deriving wiretype]"
+               "two constructors are written \"a\"");
         ] );
       ( "accepted",
         [
@@ -79,6 +145,10 @@ let () =
                "type t = { a : (string * int) list [@dict] [@max_properties \
                 3]; b : ((string * int) list[@dict]) option } [@@deriving \
                 wiretype]");
+          Alcotest.test_case "an option that is read-only, with examples" `Quick
+            (accepted
+               "type t = { a : string option; [@read_only] [@examples [ \"x\" \
+                ]] } [@@deriving wiretype]");
           Alcotest.test_case "a deprecated member" `Quick
             (accepted
                "type t = { a : int; [@wiretype.deprecated] b : int } \
