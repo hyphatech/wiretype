@@ -1,8 +1,3 @@
-This licence covers wiretype and ppx_wiretype, but for the Unicode data
-in src/unicode/ and test/idna-test/, which is Unicode's, under the licence
-beside it, and JSONTestSuite's cases in test/json-test-suite/, under the
-licence beside them.
-
 MIT License
 
 Copyright (c) 2026 Hypha Technologies Ltd
