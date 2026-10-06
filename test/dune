@@ -1,0 +1,48 @@
+; The schema printer, which needs nothing but the library.
+
+(test
+ (name test_schema)
+ (package wiretype)
+ (modules test_schema)
+ (libraries wiretype alcotest))
+
+; Reading, writing, the kinds and the deriver: its descriptions are written
+; by ppx_wiretype, so it is that package's, and it reads back through yojson,
+; the reader that is not ours.
+
+(test
+ (name test_wiretype)
+ (package ppx_wiretype)
+ (modules test_wiretype)
+ (libraries wiretype yojson alcotest qcheck-core qcheck-alcotest)
+ (preprocess
+  (pps ppx_wiretype))
+ (deps
+  ; JSONTestSuite's parsing cases, pinned, which the parser's rows run whole.
+  (source_tree json-test-suite)
+  ; Unicode's IDNA conformance file, and the data a stricter refusal is read in.
+  (source_tree idna-test)
+  (source_tree ../src/unicode)))
+
+; The deriver, run in-process over snippets it must refuse.
+
+(test
+ (name test_ppx_wiretype)
+ (package ppx_wiretype)
+ (modules test_ppx_wiretype)
+ (libraries ppx_wiretype ppxlib alcotest))
+
+; The house rules, read off the source.
+
+(test
+ (name test_style)
+ (package wiretype)
+ (modules test_style)
+ (libraries alcotest)
+ (deps
+  ../src/dune
+  (glob_files ../src/*.ml)
+  (glob_files ../src/*.mli)
+  (glob_files ../src/gen/*.ml)
+  (glob_files ../ppx/*.ml)
+  (glob_files ../ppx/*.mli)))

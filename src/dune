@@ -1,0 +1,29 @@
+; One value describes a shape, reads it, writes it and says what it is -- to
+; a JSON Schema, to zod, or to anybody who walks it. It depends on nothing.
+
+(library
+ (name wiretype)
+ (public_name wiretype)
+ (modules_without_implementation shape)
+ (private_modules grammar decode encode powers idna_data))
+
+; The Unicode properties an internationalised host is checked by, from
+; Unicode 15.0.0's own files in unicode/.
+
+(rule
+ (target idna_data.ml)
+ (deps
+  (glob_files unicode/*.txt))
+ (action
+  (with-stdout-to
+   %{target}
+   (run gen/idna.exe unicode))))
+
+; The powers of ten the double printer reads, as exact 126-bit integers.
+
+(rule
+ (target powers.ml)
+ (action
+  (with-stdout-to
+   %{target}
+   (run gen/powers.exe))))

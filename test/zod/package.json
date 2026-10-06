@@ -1,0 +1,9 @@
+{
+  "name": "wiretype-zod-rows",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "devDependencies": {
+    "zod": "4.6.5"
+  }
+}

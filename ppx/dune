@@ -1,0 +1,11 @@
+; The deriver: a type's description, written for it. What it writes is
+; ordinary code over the library's public combinators, so a derived
+; description is one a person could have written by hand.
+
+(library
+ (name ppx_wiretype)
+ (public_name ppx_wiretype)
+ (kind ppx_deriver)
+ (libraries ppxlib)
+ (preprocess
+  (pps ppxlib.metaquot)))

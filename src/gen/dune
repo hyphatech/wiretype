@@ -1,0 +1,4 @@
+; What the library's tables are made from, at build time.
+
+(executables
+ (names powers idna))
