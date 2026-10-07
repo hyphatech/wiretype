@@ -1,5 +1,11 @@
 # Changes
 
+## Unreleased
+
+- A value that is not JSON -- `nope`, `tru`, an unterminated string or
+  list -- is refused with its syntax problem alone, where it was also said
+  to be the wrong sort, guessed from its first byte: `nope` as "not null".
+
 ## 0.1.0 (2026-10-06)
 
 First release.

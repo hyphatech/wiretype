@@ -165,7 +165,24 @@ let every_problem () =
   Alcotest.(check (list problem))
     "a syntax error ends reading, at its place"
     [ ("tags", "syntax") ]
-    (problems {|{"x": 1, "y": 2, "tags": ["a" "b"]}|} move)
+    (problems {|{"x": 1, "y": 2, "tags": ["a" "b"]}|} move);
+  (* A value that is not JSON has no sort to be the wrong one: its first
+     byte only guessed at one. *)
+  List.iter
+    (fun (text, at) ->
+      Alcotest.(check (list problem))
+        (Printf.sprintf "%s is a syntax error alone" text)
+        [ (at, "syntax") ]
+        (problems text move))
+    [
+      ("nope", "");
+      ("tru", "");
+      ("fals", "");
+      ("xyz", "");
+      ({|"abc|}, "");
+      ("[1,", "[1]");
+      ({|{"x": nope, "y": 2}|}, "x");
+    ]
 
 let absent_and_null () =
   let read text =

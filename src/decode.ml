@@ -439,10 +439,14 @@ let sort_found st =
   | '-' | '0' .. '9' -> "a number"
   | _ -> "something else"
 
+(* Skipped before it is reported: a value that is not JSON stops reading
+   with its syntax problem alone, since its first byte only guessed at a
+   sort it does not have. *)
 let mismatch st path depth expected =
-  report st path P.Unexpected_type
-    (Printf.sprintf "This must be %s, not %s." expected (sort_found st));
+  let sort = sort_found st in
   skip st path depth;
+  report st path P.Unexpected_type
+    (Printf.sprintf "This must be %s, not %s." expected sort);
   None
 
 let one_of words =
