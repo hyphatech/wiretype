@@ -166,8 +166,8 @@ let every_problem () =
     "a syntax error ends reading, at its place"
     [ ("tags", "syntax") ]
     (problems {|{"x": 1, "y": 2, "tags": ["a" "b"]}|} move);
-  (* A value that is not JSON has no sort to be the wrong one: its first
-     byte only guessed at one. *)
+  (* Text that is not JSON is that one problem alone, whatever was wrong
+     before it: a value that is not JSON has no sort to be the wrong one. *)
   List.iter
     (fun (text, at) ->
       Alcotest.(check (list problem))
@@ -182,7 +182,39 @@ let every_problem () =
       ({|"abc|}, "");
       ("[1,", "[1]");
       ({|{"x": nope, "y": 2}|}, "x");
-    ]
+      ({|{"x": "a", "y": 2, "tags": nope}|}, "tags");
+      ({|{"x": 0, "y": 0, "note": {"a": 1, "a": 2}, "z": nope}|}, "z");
+      ({|{"x": 0, "y": 0, "x": nope}|}, "x");
+      ({|{"x": "a", "y": 2} x|}, "");
+    ];
+  Alcotest.(check (list problem))
+    "in a list too"
+    [ ("[2]", "syntax") ]
+    (problems {|["a", 2, nope]|} (J.list J.string));
+  Alcotest.(check (list string))
+    "and nested past the limit, that one problem alone" [ "too_deep" ]
+    (List.map snd
+       (problems
+          ({|{"x": "a", "y": 0, "note": |} ^ String.make 600 '['
+         ^ String.make 600 ']' ^ "}")
+          move));
+  Alcotest.(check (list problem))
+    "a value of the wrong sort before what is wrong inside it"
+    [ ("note", "unexpected_type"); ("note.a", "repeated_member") ]
+    (problems {|{"x": 0, "y": 0, "note": {"a": 1, "a": 2}}|} move);
+  Alcotest.(check (list problem))
+    "and not JSON inside it, a syntax error alone"
+    [ ("note[1]", "syntax") ]
+    (problems {|{"x": 0, "y": 0, "note": [1, nope]}|} move);
+  let written_only = J.map ~enc:Fun.id J.int in
+  Alcotest.(check (list problem))
+    "a description made only to write"
+    [ ("", "malformed") ]
+    (problems "1" written_only);
+  Alcotest.(check (list problem))
+    "and not JSON where it is read, a syntax error alone"
+    [ ("", "syntax") ]
+    (problems "nope" written_only)
 
 let absent_and_null () =
   let read text =
@@ -222,7 +254,15 @@ let unknown () =
   Alcotest.(check (list problem))
     "refused when asked"
     [ ("b", "unknown_member") ]
-    (problems {|{"a":1,"b":2}|} strict)
+    (problems {|{"a":1,"b":2}|} strict);
+  Alcotest.(check (list problem))
+    "before what is wrong inside it"
+    [ ("b", "unknown_member"); ("b.c", "repeated_member") ]
+    (problems {|{"a":1,"b":{"c":1,"c":2}}|} strict);
+  Alcotest.(check (list problem))
+    "and not JSON, a syntax error alone"
+    [ ("b", "syntax") ]
+    (problems {|{"a":1,"b":nope}|} strict)
 
 (* A value, a step, and whether the value is a multiple of it: the same rows
    are kinds.test.ts's, which runs zod's multipleOf over them. *)
@@ -413,9 +453,17 @@ let unions () =
     [ ("data.x", "repeated_member") ]
     (problems {|{"type":"note","data":{"x":1,"x":2}}|} event);
   Alcotest.(check (list problem))
-    "and inside a member nobody describes, said once"
-    [ ("z.x", "repeated_member"); ("z", "unknown_member") ]
+    "and inside a member nobody describes, said once, after it"
+    [ ("z", "unknown_member"); ("z.x", "repeated_member") ]
     (problems {|{"type":"note","data":1,"z":{"x":1,"x":2}}|} event);
+  Alcotest.(check (list problem))
+    "a member nobody describes that is not JSON, a syntax error alone"
+    [ ("z", "syntax") ]
+    (problems {|{"type":"note","data":1,"z":nope}|} event);
+  Alcotest.(check (list problem))
+    "and whatever was wrong before it, as in a plain object"
+    [ ("by", "syntax") ]
+    (problems {|{"type":"note","data":{"x":1,"x":2},"by":nope}|} event);
   Alcotest.(check (list problem))
     "a case that refuses a member it does not describe"
     [ ("z", "unknown_member") ]

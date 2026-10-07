@@ -2,9 +2,14 @@
 
 ## Unreleased
 
-- A value that is not JSON -- `nope`, `tru`, an unterminated string or
-  list -- is refused with its syntax problem alone, where it was also said
-  to be the wrong sort, guessed from its first byte: `nope` as "not null".
+- Breaking: text that is not JSON, or nested past the limit, is refused
+  with that one problem alone. A plain object or list also reported the
+  problems it had found before it and a union never did; now every
+  description answers as a parse before the reading would. A value that is
+  not JSON is no longer also said to be the wrong sort, guessed from its
+  first byte: `nope` as "not null".
+- A member a union refuses is said before any problem inside it, in the
+  document's order, as a plain object's always was.
 
 ## 0.1.0 (2026-10-06)
 

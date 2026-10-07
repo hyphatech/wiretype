@@ -23,7 +23,7 @@
     {b Reading} is one pass over the text with the description in hand, and
     reports every problem the document has, each at its place with a code
     ({!Problem}) -- but for text that is not JSON, or nested past the limit,
-    after which nothing can be read. A number is read from its digits by the
+    which is that one problem alone. A number is read from its digits by the
     description that wants it, so an integer is exact; a member given twice is
     refused, as I-JSON (RFC 7493 §2.3) has it, because two readers that choose
     differently read two documents.

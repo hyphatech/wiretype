@@ -1,7 +1,6 @@
 (** What is wrong with a document: where, a code a client branches on, and a
     sentence about that one place. Decoding reports every problem a document
-    has, but for a {!Syntax} or {!Too_deep} one, after which nothing can be
-    read. *)
+    has, but for a {!Syntax} or {!Too_deep} one, which is reported alone. *)
 
 type segment =
   | Member of string
@@ -10,8 +9,8 @@ type segment =
       (** a member's name, where it is the name that is wrong: a map's key *)
 
 type code =
-  | Syntax  (** not JSON: nothing after it is read *)
-  | Too_deep  (** nested past the limit: nothing after it is read *)
+  | Syntax  (** not JSON: reported alone *)
+  | Too_deep  (** nested past the limit: reported alone *)
   | Required  (** a member that must be there is not *)
   | Unexpected_type  (** a value of another sort: a string for a number *)
   | Too_small  (** below its minimum, or its type's *)

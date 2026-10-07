@@ -3,8 +3,9 @@
    A value of the wrong sort is skipped -- the lexer reads past any
    well-formed value -- and its problem recorded where it is, so a document
    answers every problem it has; a document that is not JSON, or nested past
-   the limit, is one problem and nothing after it, since nothing after it can
-   be trusted.
+   the limit, is that one problem alone, since what was found before it
+   depends on how far one pass had read: a union reads none of its members
+   until its object has ended.
 
    A union's members are read in two passes, because its tag may come after
    the members it decides: the first finds where each member's value starts,
@@ -22,18 +23,17 @@ type st = {
   max_depth : int;
 }
 
-(* Raised once a problem that ends reading is recorded, and caught in [run]:
-   it never leaves this module. *)
-exception Stop
+(* Raised with the problem that ends reading, and caught in [run]: it never
+   leaves this module. *)
+exception Stop of P.t
 
 type path = P.segment list (* innermost first *)
 
 let report st (path : path) code message =
   st.problems <- { P.at = List.rev path; code; message } :: st.problems
 
-let fatal st path code message =
-  report st path code message;
-  raise Stop
+let fatal path code message =
+  raise (Stop { P.at = List.rev path; code; message })
 
 let at_end st = st.i >= st.len
 
@@ -50,7 +50,7 @@ let found st =
     | c -> Printf.sprintf "'%c'" c
 
 let syntax st path what =
-  fatal st path P.Syntax
+  fatal path P.Syntax
     (Printf.sprintf
        "This is not JSON: %s was expected at byte %d, and %s was found." what
        st.i (found st))
@@ -73,7 +73,7 @@ let literal st path word =
 
 let enter st path depth =
   if depth >= st.max_depth then
-    fatal st path P.Too_deep
+    fatal path P.Too_deep
       (Printf.sprintf "This is nested more than %d deep." st.max_depth)
 
 (* ------------------------------------------------------------------ *)
@@ -416,15 +416,18 @@ let written shape v =
   | Error e -> Error e
   | Ok s -> (
       let st = state s in
+      let unspellable problems =
+        Error
+          {
+            Unwritable.at = [];
+            code = Unwritable.Unspellable;
+            message = P.list_to_string problems;
+          }
+      in
       match json st [] 0 with
       | v when List.is_empty st.problems -> Ok v
-      | _ | (exception Stop) ->
-          Error
-            {
-              Unwritable.at = [];
-              code = Unwritable.Unspellable;
-              message = P.list_to_string (List.rev st.problems);
-            })
+      | _ -> unspellable (List.rev st.problems)
+      | exception Stop p -> unspellable [ p ])
 
 (* ------------------------------------------------------------------ *)
 (* Reading by a description *)
@@ -439,14 +442,10 @@ let sort_found st =
   | '-' | '0' .. '9' -> "a number"
   | _ -> "something else"
 
-(* Skipped before it is reported: a value that is not JSON stops reading
-   with its syntax problem alone, since its first byte only guessed at a
-   sort it does not have. *)
 let mismatch st path depth expected =
-  let sort = sort_found st in
-  skip st path depth;
   report st path P.Unexpected_type
-    (Printf.sprintf "This must be %s, not %s." expected sort);
+    (Printf.sprintf "This must be %s, not %s." expected (sort_found st));
+  skip st path depth;
   None
 
 let one_of words =
@@ -862,8 +861,8 @@ and key : type k. st -> path -> k S.t -> string -> k option =
       | v ->
           st.problems <- quoted.problems @ st.problems;
           v
-      | exception Stop ->
-          st.problems <- quoted.problems @ st.problems;
+      | exception Stop p ->
+          st.problems <- (p :: quoted.problems) @ st.problems;
           None)
 
 (* A tuple's items, each read by its own description at its place; a list
@@ -1199,8 +1198,8 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
           st.i <- pos;
           m.set ()
       | None ->
-          st.problems <- inside @ st.problems;
-          unknown st (P.Member name :: path) policy)
+          unknown st (P.Member name :: path) policy;
+          st.problems <- inside @ st.problems)
     members;
   fill ();
   st.i <- stop;
@@ -1208,11 +1207,15 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
 
 let run ?max_depth shape s =
   let st = state ?max_depth s in
-  match value st [] 0 shape with
+  let read () =
+    let v = value st [] 0 shape in
+    ws st;
+    if not (at_end st) then syntax st [] "the end of the text";
+    v
+  in
+  match read () with
+  | exception Stop p -> Error [ p ]
   | v -> (
-      ws st;
-      (if not (at_end st) then
-         try syntax st [] "the end of the text" with Stop -> ());
       match (v, st.problems) with
       | Some v, [] -> Ok v
       | None, [] ->
@@ -1225,4 +1228,3 @@ let run ?max_depth shape s =
               };
             ]
       | _, problems -> Error (List.rev problems))
-  | exception Stop -> Error (List.rev st.problems)
