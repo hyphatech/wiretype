@@ -5,15 +5,16 @@
     It is the library's API and its promise: a constructor added is a new
     version, so a walk that matches every case is told by the compiler. A
     description is built with the combinators in {!Wiretype}; one built here
-    directly is as good, since everything that reads one checks what it reads.
-*)
+    directly is as good to read, since everything that reads one checks what it
+    reads, and is trusted to be written as {!Wiretype.Object.finish} would let
+    it be: no member named twice in an object. *)
 
 type about = { kind : string; doc : string }
 (** What a description is called -- a component's name, where it is an object --
-    and what it is, for whoever documents it. Empty when it has neither. An
-    object's is its own record: {!Schema} walks an object once for each [about]
-    it meets, physically, and takes another object with the same record for the
-    same one. *)
+    and what it is, for whoever documents it. Empty when it has neither. Each
+    object {!Wiretype.Object.finish} makes has a record of its own, and the
+    schema and the writer tell objects apart by it; an object built here
+    directly gets one of its own too. *)
 
 type int_bounds = {
   min : int option;

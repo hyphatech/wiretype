@@ -2,6 +2,14 @@ module S = Shape
 
 type dir = Decode | Encode
 
+type number = {
+  min : float option;
+  max : float option;
+  above : float option;
+  below : float option;
+  multiple_of : float option;
+}
+
 type string_ = {
   words : string list option;
   min_length : int option;
@@ -11,11 +19,10 @@ type string_ = {
 
 type t =
   | Any
-  | Never
   | Null
   | Boolean
-  | Number of S.number_bounds
-  | Integer of S.number_bounds
+  | Number of number
+  | Integer of number
   | String of string_
   | Array of { items : t; min_items : int option; max_items : int option }
   | Tuple of t list
@@ -47,7 +54,7 @@ and prop = {
   examples : Value.t list;
 }
 
-let no_bounds : S.number_bounds =
+let no_bounds =
   { min = None; max = None; above = None; below = None; multiple_of = None }
 
 let text = { words = None; min_length = None; max_length = None; format = None }
@@ -103,7 +110,7 @@ let format_equal a b =
       _ ) ->
       false
 
-let number_equal (a : S.number_bounds) (b : S.number_bounds) =
+let number_equal (a : number) (b : number) =
   let f = Option.equal Float.equal in
   f a.min b.min && f a.max b.max && f a.above b.above && f a.below b.below
   && f a.multiple_of b.multiple_of
@@ -113,7 +120,7 @@ let number_equal (a : S.number_bounds) (b : S.number_bounds) =
 let rec equal a b =
   let count = Option.equal Int.equal in
   match (a, b) with
-  | Any, Any | Never, Never | Null, Null | Boolean, Boolean -> true
+  | Any, Any | Null, Null | Boolean, Boolean -> true
   | Number a, Number b | Integer a, Integer b -> number_equal a b
   | String a, String b ->
       Option.equal (List.equal String.equal) a.words b.words
@@ -138,7 +145,7 @@ let rec equal a b =
       && List.equal
            (fun (v, o) (w, p) -> Value.equal v w && obj_equal o p)
            a.cases b.cases
-  | ( ( Any | Never | Null | Boolean | Number _ | Integer _ | String _ | Array _
+  | ( ( Any | Null | Boolean | Number _ | Integer _ | String _ | Array _
       | Tuple _ | Dict _ | Object _ | Ref _ | Nullable _ | Union _ | Tagged _ ),
       _ ) ->
       false
@@ -280,7 +287,15 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
           max = of_int64 ctx at b.max;
           multiple_of = of_int64 ctx at b.multiple_of;
         }
-  | S.Number b -> Number b
+  | S.Number b ->
+      Number
+        {
+          min = b.min;
+          max = b.max;
+          above = b.above;
+          below = b.below;
+          multiple_of = b.multiple_of;
+        }
   | S.String l ->
       String { text with min_length = l.min_length; max_length = l.max_length }
   | S.Enum (_, e) -> String { text with words = Some (List.map fst e.words) }
@@ -357,16 +372,15 @@ and any : type a. ctx -> dir -> string -> int -> a S.any -> t =
       [] branches
   in
   let nullable s = match a.null with Some _ -> Nullable s | None -> s in
-  match (distinct, a.null, dir) with
-  | [], Some _, (Decode | Encode) -> Null
-  (* Nothing reads it, so a request holds none; what an answer holds is
-     whatever its writing picks, which only a value says. *)
-  | [], None, Decode -> Never
-  | [], None, Encode ->
+  match (distinct, a.null) with
+  | [], Some _ -> Null
+  (* Nothing reads it: what a request may hold is nothing, and what an
+     answer holds is whatever its writing picks; neither is a shape. *)
+  | [], None ->
       report ctx at "a value of several sorts with none to read it by, any JSON";
       Any
-  | [ s ], _, (Decode | Encode) -> nullable s
-  | several, _, (Decode | Encode) -> nullable (Union several)
+  | [ s ], _ -> nullable s
+  | several, _ -> nullable (Union several)
 
 and props : type o f.
     ctx -> dir -> string -> int -> (o, f) S.fields -> prop list =
@@ -536,7 +550,7 @@ module Json_schema = struct
 
   let some key f = function None -> [] | Some x -> [ (key, f x) ]
 
-  let bounds (b : S.number_bounds) =
+  let bounds (b : number) =
     some "minimum" number b.min
     @ some "maximum" number b.max
     @ some "exclusiveMinimum" number b.above
@@ -566,7 +580,6 @@ module Json_schema = struct
 
   let rec of_t ?(defs = "#/$defs/") = function
     | Any -> obj []
-    | Never -> obj [ ("not", obj []) ]
     | Null -> obj (typed "null")
     | Boolean -> obj (typed "boolean")
     | Number b -> obj (typed "number" @ bounds b)
@@ -738,7 +751,7 @@ module Zod = struct
     | Dict { keys; values; _ } -> refers names keys || refers names values
     | Object o -> refers_in names o
     | Tagged { cases; _ } -> List.exists (fun (_, o) -> refers_in names o) cases
-    | Any | Never | Null | Boolean | Number _ | Integer _ | String _ -> false
+    | Any | Null | Boolean | Number _ | Integer _ | String _ -> false
 
   and refers_in names (o : obj) =
     List.exists (fun p -> refers names p.schema) o.props
@@ -759,7 +772,7 @@ module Zod = struct
   (* zod's multipleOf allows a few rounding errors, as a number's multiple
      does, but an integer's is exact, and JavaScript's [%] is exact on every
      integer [z.int()] takes. *)
-  let bounds ~multiple (b : S.number_bounds) =
+  let bounds ~multiple (b : number) =
     some (fun m -> "z.gte(" ^ num m ^ ")") b.min
     @ some (fun m -> "z.lte(" ^ num m ^ ")") b.max
     @ some (fun m -> "z.gt(" ^ num m ^ ")") b.above
@@ -808,7 +821,6 @@ module Zod = struct
      a reference to a schema that comes later, or to the one it is in. *)
   let rec expr ?(indent = "") ?(forward = []) = function
     | Any -> "z.unknown()"
-    | Never -> "z.never()"
     | Null -> "z.null()"
     | Boolean -> "z.boolean()"
     | Number b ->

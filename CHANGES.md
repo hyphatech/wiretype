@@ -21,21 +21,19 @@
   names its members, and two paths are never spelt alike.
 - Breaking: `encode` refuses, as `unspellable`, a float that is not finite,
   which it wrote `null` though `number` reads no `null`; a value an enum has
-  no word for; and a case its union does not list. It refuses a member a
-  description built by hand writes twice. `Object.finish` raises where an
+  no word for; and a case its union does not list. `Object.finish` raises
+  where an
   object that is read has a member or a tag with `omit` and no `absent`,
   which it wrote by leaving out and read as required.
-- Breaking: `Schema.number` is gone; `Schema.Number` and `Schema.Integer`
-  hold a `Shape.number_bounds`, which it repeated field for field.
 - Breaking: the schemas say what the reader means or report that they
-  cannot. A value of several sorts that nothing reads is `Never` (`{"not":
-  {}}`, `z.never()`) in a request, and loose in an answer, where it was
-  `null`; an integer's bound past 2^53 is left out and reported loose, where
+  cannot. A value of several sorts that nothing reads is reported loose,
+  where it was printed as `null`; an integer's bound past 2^53 is left out and reported loose, where
   it was rounded; a UUID of one version has its `pattern` in JSON Schema; a
   member named `__proto__` is a computed key in zod, where it set the
-  prototype. `Schema.t` gains `Never`.
-- Breaking: `number_bounded` raises for a bound that is no finite number,
-  which printed as `null` and could mean nothing.
+  prototype.
+- Breaking: `number_bounded` raises for a bound no number meets --
+  `~max:neg_infinity`, or NaN -- and takes one every number meets,
+  `~max:infinity`, as none; each was printed as `null`.
 - Breaking: two descriptions under one kind that differ only in a doc, an
   example or `deprecated` are a `kind_shared` error, where the second was
   dropped.
@@ -60,10 +58,10 @@
 - `uri` refuses an `xn--` label longer than DNS's 63 octets before
   decoding it, since decoding one takes time growing with the square of
   its length.
-- `decode`'s `max_depth` is taken to 10,000 at most, past which the reader's
+- Breaking: `decode`'s `max_depth` is taken to 10,000 at most, past which the reader's
   own recursion could overflow the stack; and `name` names a description of
   itself, where it overflowed the stack.
-- `ipv6` refuses a dotted IPv4 address anywhere but at the end, as in
+- Breaking: `ipv6` refuses a dotted IPv4 address anywhere but at the end, as in
   `1.2.3.4::`, and `uri` refuses a `file:` URI with userinfo, a port or a
   host that is no domain or address, and an empty host after userinfo or
   before a port: each a string the URL standard, and so zod, refuses.

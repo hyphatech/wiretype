@@ -34,13 +34,13 @@
     {b What a description is} is {!Shape}, public and walked by the decoder, the
     encoder and {!Schema}, which prints JSON Schema and zod from it.
 
-    {b A description that can mean nothing} -- such as a bound that is no finite
-    number, a [multiple_of] that is not positive, two values written as one
-    word, a member described twice, an object with two unions, or a member
-    written by leaving it out that is read as required -- raises
-    [Invalid_argument] where it is built, as each function below says: a
-    description is a constant written in source, so the mistake is found when
-    the program starts, or in its first test, and never on a request. *)
+    {b A description that can mean nothing} -- such as a bound no number meets,
+    a [multiple_of] that is not positive, two values written as one word, a
+    member described twice, an object with two unions, or a member written by
+    leaving it out that is read as required -- raises [Invalid_argument] where
+    it is built, as each function below says: a description is a constant
+    written in source, so the mistake is found when the program starts, or in
+    its first test, and never on a request. *)
 
 (** Any JSON value, and its description. *)
 module Value : sig
@@ -126,8 +126,10 @@ val number_bounded :
 (** [min] and [max] are at least and at most; [above] and [below] greater and
     less than. [multiple_of] holds where the quotient is a whole number to
     within a few rounding errors, so [19.99] is a multiple of [0.01], as the
-    decimals written mean. Raises [Invalid_argument] where a bound is not a
-    finite number, or [multiple_of] is not a positive one. *)
+    decimals written mean. An infinite bound every number meets --
+    [~max:infinity] -- is none. Raises [Invalid_argument] where a bound is one
+    no number meets, or no number, or [multiple_of] is not a positive finite
+    number. *)
 
 val string : string t
 (** Text, checked as UTF-8. *)

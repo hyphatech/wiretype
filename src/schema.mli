@@ -14,6 +14,14 @@
 
 type dir = Decode | Encode
 
+type number = {
+  min : float option;  (** at least *)
+  max : float option;  (** at most *)
+  above : float option;  (** greater than *)
+  below : float option;  (** less than *)
+  multiple_of : float option;
+}
+
 type string_ = {
   words : string list option;  (** an enum's, exactly *)
   min_length : int option;
@@ -23,11 +31,10 @@ type string_ = {
 
 type t =
   | Any
-  | Never  (** nothing: a value no description reads *)
   | Null
   | Boolean
-  | Number of Shape.number_bounds
-  | Integer of Shape.number_bounds
+  | Number of number
+  | Integer of number
   | String of string_
   | Array of { items : t; min_items : int option; max_items : int option }
   | Tuple of t list  (** exactly these items, in order *)
@@ -66,7 +73,7 @@ and prop = {
   examples : Value.t list;
 }
 
-val no_bounds : Shape.number_bounds
+val no_bounds : number
 
 val text : string_
 (** A string, and nothing more said of it. *)
@@ -88,8 +95,8 @@ val loose : ctx -> string list
 (** Every place described loosely: any JSON ({!Wiretype.Value.json}), which says
     nothing of its shape; a recursive description with no kind, where its
     expansion stops; an integer's bound past 2{^ 53}, which is left out since a
-    double holds it only roughly; and, in an answer, a value of several sorts
-    that none of its descriptions reads. *)
+    double holds it only roughly; and a value of several sorts that none of its
+    descriptions reads. *)
 
 (** Why a schema could not be made right. *)
 type error_code =

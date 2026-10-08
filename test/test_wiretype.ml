@@ -666,12 +666,22 @@ let malformed_descriptions () =
   refused "a multiple that is not a number"
     "Wiretype.number_bounded: multiple_of is nan, and must be positive"
     (fun () -> J.number_bounded ~multiple_of:Float.nan ());
-  refused "a bound that is no finite number"
-    "Wiretype.number_bounded: max is inf, and must be a finite number"
-    (fun () -> J.number_bounded ~max:Float.infinity ());
-  refused "nor a bound that is no number"
-    "Wiretype.number_bounded: above is nan, and must be a finite number"
-    (fun () -> J.number_bounded ~above:Float.nan ());
+  refused "a bound no number meets"
+    "Wiretype.number_bounded: max is -inf, which no number meets" (fun () ->
+      J.number_bounded ~max:Float.neg_infinity ());
+  refused "nor a number above"
+    "Wiretype.number_bounded: above is inf, which no number meets" (fun () ->
+      J.number_bounded ~above:Float.infinity ());
+  refused "a bound that is no number"
+    "Wiretype.number_bounded: min is nan, which no number meets" (fun () ->
+      J.number_bounded ~min:Float.nan ());
+  Alcotest.(check bool)
+    "but one every number meets is none" true
+    (Result.is_ok
+       (J.decode
+          (J.number_bounded ~min:Float.neg_infinity ~max:Float.infinity
+             ~above:Float.neg_infinity ~below:Float.infinity ())
+          "-1e308"));
   refused "two values, one word" "Wiretype.enum: two values are written \"a\""
     (fun () -> J.enum (fun _ -> "a") [ 1; 2 ]);
   refused "a member described twice"
@@ -1367,26 +1377,6 @@ let unwritable () =
          [ J.Object.Case.make (case "a") ]
     |> J.Object.finish)
     () "t unspellable";
-  (* Built here directly, past what Object.finish checks. *)
-  let x : (int, int) J.Shape.mem =
-    {
-      name = "x";
-      doc = "";
-      shape = J.int;
-      absent = None;
-      omit = None;
-      get = Some Fun.id;
-      opt = false;
-      access = `Read_write;
-      deprecated = false;
-      examples = [];
-    }
-  in
-  refused "a member a description built by hand gives twice"
-    (J.Shape.Object
-       ( { kind = ""; doc = "" },
-         { unknown = Skip; fields = Mem (Mem (Build (fun a _ -> a), x), x) } ))
-    1 "x repeated_member";
   let rec deep n = if n = 0 then V.Null else V.Array [ deep (n - 1) ] in
   Alcotest.(check (result unit string))
     "nested as deep as a reader reads" (Ok ())

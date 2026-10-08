@@ -89,8 +89,8 @@ Each rule comes with why it exists and the test that catches a break.
   descriptions are compiled outside the library; `test_ppx_wiretype`'s
   refusals.
 - **`invalid_arg` only where a description is built and can mean
-  nothing** -- a bound that is no finite number, a `multiple_of` that is
-  not positive, two values with one
+  nothing** -- a bound no number meets, a `multiple_of` that is not
+  positive, two values with one
   word, a member described twice, two unions in one object, a case that is
   not an object, a member written by leaving it out that is read as
   required -- since a description is a constant written in source,

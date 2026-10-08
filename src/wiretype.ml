@@ -87,14 +87,18 @@ let number =
     { min = None; max = None; above = None; below = None; multiple_of = None }
 
 let number_bounded ?min ?max ?above ?below ?multiple_of () =
-  List.iter
-    (fun (name, bound) ->
-      match bound with
-      | Some b when not (Float.is_finite b) ->
-          malformed "number_bounded" "%s is %g, and must be a finite number"
-            name b
-      | Some _ | None -> ())
-    [ ("min", min); ("max", max); ("above", above); ("below", below) ];
+  (* An infinity every number meets is no bound; one no number meets, or a
+     bound that is no number, can mean nothing. *)
+  let bound name ~none = function
+    | Some b when Float.is_nan b || Float.equal b (Float.neg none) ->
+        malformed "number_bounded" "%s is %g, which no number meets" name b
+    | Some b when Float.equal b none -> None
+    | b -> b
+  in
+  let min = bound "min" ~none:Float.neg_infinity min
+  and max = bound "max" ~none:Float.infinity max
+  and above = bound "above" ~none:Float.neg_infinity above
+  and below = bound "below" ~none:Float.infinity below in
   (match multiple_of with
   | Some m when not (Float.is_finite m && Float.compare m 0. > 0) ->
       malformed "number_bounded" "multiple_of is %g, and must be positive" m

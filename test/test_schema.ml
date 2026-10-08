@@ -473,16 +473,16 @@ let test_what_the_reader_means () =
     (V.to_string (S.Json_schema.of_t root), S.Zod.of_t root, S.loose ctx)
   in
   let nothing = Wiretype.any ~enc:(fun _ -> Wiretype.int) () in
-  Alcotest.(check (triple string string (list string)))
-    "a value nothing reads, as a request"
-    ({|{"not":{}}|}, "z.never()", [])
-    (printed nothing);
-  Alcotest.(check (triple string string (list string)))
-    "and as an answer, which only its writing knows"
-    ( "{}",
-      "z.unknown()",
-      [ "test: a value of several sorts with none to read it by, any JSON" ] )
-    (printed ~dir:S.Encode nothing);
+  List.iter
+    (fun dir ->
+      Alcotest.(check (triple string string (list string)))
+        "a value nothing reads, reported"
+        ( "{}",
+          "z.unknown()",
+          [ "test: a value of several sorts with none to read it by, any JSON" ]
+        )
+        (printed ~dir nothing))
+    [ S.Decode; S.Encode ];
   Alcotest.(check (triple string string (list string)))
     "a bound a double holds only roughly is left out, and reported"
     ( {|{"type":"integer","maximum":5}|},
@@ -523,6 +523,10 @@ let test_each_is_said () =
     ( {|{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1}|},
       "z.number().check(z.gt(0), z.lt(1))" )
     (printed (Wiretype.number_bounded ~above:0. ~below:1. ()));
+  Alcotest.(check (pair string string))
+    "a bound every number meets, which is none"
+    ({|{"type":"number","minimum":0}|}, "z.number().check(z.gte(0))")
+    (printed (Wiretype.number_bounded ~min:0. ~max:Float.infinity ()));
   Alcotest.(check (pair string string))
     "an int64's bounds"
     ( {|{"type":"integer","minimum":-5,"maximum":5}|},
