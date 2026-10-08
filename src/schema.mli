@@ -5,21 +5,14 @@
     A description is walked in a {!dir}ection: what a request's body reads
     ({!Decode}) and what an answer writes ({!Encode}) differ where a member is
     read-only, write-only, or made by {!Wiretype.Object.opt_mem}, which reads
-    [null] and never writes it. Each object with a [kind] is a component named
-    by it ({!name_of_kind}), and a request's is [<Name>Input] exactly where its
-    description differs by direction, at any depth: a name follows from the
-    description and the direction alone, never from what else was walked or in
-    what order. Two different schemas under one name are an error. *)
+    [null] and never writes it. Each object with a [kind], but for a union's
+    case, is a component named by it ({!name_of_kind}), and a request's is
+    [<Name>Input] exactly where its description differs by direction, at any
+    depth: a name follows from the description and the direction alone, never
+    from what else was walked or in what order. Two different schemas under one
+    name, docs and all, are an error. *)
 
 type dir = Decode | Encode
-
-type number = {
-  min : float option;
-  max : float option;
-  above : float option;
-  below : float option;
-  multiple_of : float option;
-}
 
 type string_ = {
   words : string list option;  (** an enum's, exactly *)
@@ -30,10 +23,11 @@ type string_ = {
 
 type t =
   | Any
+  | Never  (** nothing: a value no description reads *)
   | Null
   | Boolean
-  | Number of number
-  | Integer of number
+  | Number of Shape.number_bounds
+  | Integer of Shape.number_bounds
   | String of string_
   | Array of { items : t; min_items : int option; max_items : int option }
   | Tuple of t list  (** exactly these items, in order *)
@@ -59,7 +53,9 @@ and obj = { about : string; props : prop list; additional : additional }
 and additional =
   | Allowed  (** anything, and it is no part of the value *)
   | Refused  (** none: {!Wiretype.Object.error_unknown} *)
-  | Each of t  (** each by this schema *)
+  | Each of t
+      (** each by this schema: beside named members, what {!Dict} cannot say;
+          the walk never makes it, and a schema built by hand may *)
 
 and prop = {
   name : string;
@@ -70,7 +66,7 @@ and prop = {
   examples : Value.t list;
 }
 
-val no_bounds : number
+val no_bounds : Shape.number_bounds
 
 val text : string_
 (** A string, and nothing more said of it. *)
@@ -85,12 +81,15 @@ val walk : ctx -> dir -> at:string -> 'a Shape.t -> t
 (** [at] names where the description is used, for what is reported. *)
 
 val components : ctx -> (string * t) list
-(** In the order they were first met. *)
+(** Each after the components it refers to, but for one it is recursive with,
+    which comes later. *)
 
 val loose : ctx -> string list
 (** Every place described loosely: any JSON ({!Wiretype.Value.json}), which says
-    nothing of its shape, and a recursive description with no kind, where its
-    expansion stops. *)
+    nothing of its shape; a recursive description with no kind, where its
+    expansion stops; an integer's bound past 2{^ 53}, which is left out since a
+    double holds it only roughly; and, in an answer, a value of several sorts
+    that none of its descriptions reads. *)
 
 (** Why a schema could not be made right. *)
 type error_code =

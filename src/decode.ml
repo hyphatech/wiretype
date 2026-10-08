@@ -403,8 +403,18 @@ let rec json st path depth : Value.t =
       Value.Number f
   | _ -> syntax st path "a value"
 
+(* Each level of nesting is a frame of the reader's own recursion, so no
+   caller's limit is taken past one a stack holds wherever OCaml runs. *)
+let max_depth_ceiling = 10_000
+
 let state ?(max_depth = Encode.max_depth) s =
-  { s; len = String.length s; i = 0; problems = []; max_depth }
+  {
+    s;
+    len = String.length s;
+    i = 0;
+    problems = [];
+    max_depth = Int.min max_depth max_depth_ceiling;
+  }
 
 (* A value as the JSON it is written as: a union's tag, compared with the
    one a document gives; an example; [Wiretype.to_value]. What [Encode]
@@ -490,7 +500,8 @@ let int_ st path (b : S.int_bounds) =
       | None -> past_type st path negative "a whole number here"
     else
       let f = float_of_string text in
-      if not (Float.is_integer f) then (
+      (* Past a double, a number is too large before it is a fraction. *)
+      if Float.is_finite f && not (Float.is_integer f) then (
         report st path P.Unexpected_type
           "This must be a whole number, not a fraction.";
         None)
@@ -528,7 +539,7 @@ let int64_ st path (b : S.int64_bounds) =
       | None -> past_type st path negative "a 64-bit whole number"
     else
       let f = float_of_string text in
-      if not (Float.is_integer f) then (
+      if Float.is_finite f && not (Float.is_integer f) then (
         report st path P.Unexpected_type
           "This must be a whole number, not a fraction.";
         None)
@@ -629,13 +640,11 @@ let sorts (a : _ S.any) =
       Option.map (fun _ -> "an object") a.object_;
     ]
 
-let either = function
+let either ws =
+  match List.rev ws with
   | [] -> "nothing at all"
   | [ w ] -> w
-  | ws -> (
-      match List.rev ws with
-      | last :: rest -> String.concat ", " (List.rev rest) ^ " or " ^ last
-      | [] -> "")
+  | last :: rest -> String.concat ", " (List.rev rest) ^ " or " ^ last
 
 type 'a slot = Unset | Failed | Got of 'a
 type setter = unit -> unit
@@ -1152,9 +1161,9 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
            when the object or its case describes it, and here when neither
            does. *)
         let before = st.problems in
+        st.problems <- [];
         skip st at (depth + 1);
-        let found = List.length st.problems - List.length before in
-        let inside = List.filteri (fun i _ -> i < found) st.problems in
+        let inside = st.problems in
         st.problems <- before;
         let names, acc =
           if Names.mem name names then (

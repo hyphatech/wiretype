@@ -47,9 +47,15 @@ let rec value : type a. Buffer.t -> path -> int -> a S.t -> a -> unit =
   | S.Bool -> Buffer.add_string b (if v then "true" else "false")
   | S.Int _ -> Buffer.add_string b (string_of_int v)
   | S.Int64 _ -> Buffer.add_string b (Int64.to_string v)
-  | S.Number _ -> Text.number b v
+  | S.Number _ ->
+      if Float.is_finite v then Text.number b v
+      else fail path U.Unspellable "%s is no JSON number." (Float.to_string v)
   | S.String _ -> text b path v
-  | S.Enum (_, e) -> text b path (e.word v)
+  | S.Enum (_, e) ->
+      let w = e.word v in
+      if List.exists (fun (w', _) -> String.equal w w') e.words then
+        text b path w
+      else fail path U.Unspellable "%S is not one of this enum's words." w
   | S.List l ->
       enter path depth;
       Buffer.add_char b '[';
@@ -95,7 +101,7 @@ let rec value : type a. Buffer.t -> path -> int -> a S.t -> a -> unit =
   | S.Object (_, o) ->
       enter path depth;
       Buffer.add_char b '{';
-      ignore (members b path depth o v true : bool);
+      ignore (members b path depth (Hashtbl.create 8) o v true : bool);
       Buffer.add_char b '}'
   | S.Any (about, a) -> (
       match a.pick with
@@ -159,11 +165,20 @@ and parts : type t f. Buffer.t -> path -> int -> (t, f) S.items -> t -> int =
 
 (* The members, after [first] says whether any has been written: a union's
    tag first, then the object's own, then the case's, as a reader expects
-   the tag before what it decides. *)
-and members : type o. Buffer.t -> path -> int -> o S.obj -> o -> bool -> bool =
- fun b path depth o v first ->
+   the tag before what it decides. [names] are those written, since a
+   description built by hand may give one twice. *)
+and members : type o.
+    Buffer.t ->
+    path ->
+    int ->
+    (string, unit) Hashtbl.t ->
+    o S.obj ->
+    o ->
+    bool ->
+    bool =
+ fun b path depth names o v first ->
   match find_cases o.fields with
-  | None -> base b path depth o.fields v first
+  | None -> base b path depth names o.fields v first
   | Some (Packed (S.Tagged t)) ->
       let c =
         match t.enc with
@@ -173,22 +188,42 @@ and members : type o. Buffer.t -> path -> int -> o S.obj -> o -> bool -> bool =
               "This member is read and never written."
       in
       let (S.Case_value (cm, k)) = t.enc_case c in
+      let at = P.Member t.name :: path in
+      let spelled tag =
+        let b = Buffer.create 16 in
+        value b at depth t.shape tag;
+        Buffer.contents b
+      in
+      let tag = spelled cm.tag in
+      if
+        not
+          (List.exists
+             (fun (S.Case c) -> String.equal (spelled c.tag) tag)
+             t.cases)
+      then fail at U.Unspellable "%s is not one of this union's tags." tag;
       let omitted = match t.omit with Some f -> f cm.tag | None -> false in
       let first =
         if omitted then first
-        else member b path depth first t.name t.shape cm.tag
+        else member b path depth names first t.name t.shape cm.tag
       in
-      let first = base b path depth o.fields v first in
-      members b path depth cm.obj k first
+      let first = base b path depth names o.fields v first in
+      members b path depth names cm.obj k first
 
 and base : type o f.
-    Buffer.t -> path -> int -> (o, f) S.fields -> o -> bool -> bool =
- fun b path depth fields v first ->
+    Buffer.t ->
+    path ->
+    int ->
+    (string, unit) Hashtbl.t ->
+    (o, f) S.fields ->
+    o ->
+    bool ->
+    bool =
+ fun b path depth names fields v first ->
   match fields with
   | S.Build _ | S.Unread -> first
-  | S.Cases (prev, _) -> base b path depth prev v first
+  | S.Cases (prev, _) -> base b path depth names prev v first
   | S.Mem (prev, m) -> (
-      let first = base b path depth prev v first in
+      let first = base b path depth names prev v first in
       match m.get with
       | None ->
           fail (P.Member m.name :: path) U.Read_only
@@ -196,12 +231,24 @@ and base : type o f.
       | Some enc ->
           let x = enc v in
           let omitted = match m.omit with Some f -> f x | None -> false in
-          if omitted then first else member b path depth first m.name m.shape x)
+          if omitted then first
+          else member b path depth names first m.name m.shape x)
 
 and member : type a.
-    Buffer.t -> path -> int -> bool -> string -> a S.t -> a -> bool =
- fun b path depth first name shape x ->
+    Buffer.t ->
+    path ->
+    int ->
+    (string, unit) Hashtbl.t ->
+    bool ->
+    string ->
+    a S.t ->
+    a ->
+    bool =
+ fun b path depth names first name shape x ->
   let at = P.Member name :: path in
+  if Hashtbl.mem names name then
+    fail at U.Repeated_member "This member is given more than once.";
+  Hashtbl.add names name ();
   if not first then Buffer.add_char b ',';
   text b at name;
   Buffer.add_char b ':';

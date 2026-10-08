@@ -460,9 +460,189 @@ let test_bounds_and_kinds_are_said () =
     (fun sub -> Alcotest.(check bool) sub true (contains ~sub ts))
     [
       "at: z.iso.datetime({ offset: true }),";
-      "minutes: z.int().check(z.gte(5), z.lte(180), z.multipleOf(5)),";
+      "minutes: z.int().check(z.gte(5), z.lte(180), z.refine((n) => n % 5 === \
+       0)),";
       "seats: z.array(z.string().check(z.maxLength(40))).check(z.maxLength(2)),";
     ]
+
+(* A printer says what the reader means or reports that it cannot, and
+   never says something else. *)
+let test_what_the_reader_means () =
+  let printed ?(dir = S.Decode) description =
+    let ctx, root = walked ~dir description in
+    (V.to_string (S.Json_schema.of_t root), S.Zod.of_t root, S.loose ctx)
+  in
+  let nothing = Wiretype.any ~enc:(fun _ -> Wiretype.int) () in
+  Alcotest.(check (triple string string (list string)))
+    "a value nothing reads, as a request"
+    ({|{"not":{}}|}, "z.never()", [])
+    (printed nothing);
+  Alcotest.(check (triple string string (list string)))
+    "and as an answer, which only its writing knows"
+    ( "{}",
+      "z.unknown()",
+      [ "test: a value of several sorts with none to read it by, any JSON" ] )
+    (printed ~dir:S.Encode nothing);
+  Alcotest.(check (triple string string (list string)))
+    "a bound a double holds only roughly is left out, and reported"
+    ( {|{"type":"integer","maximum":5}|},
+      "z.int().check(z.lte(5))",
+      [ "test: a bound past 2^53, which a double holds only roughly" ] )
+    (printed (Wiretype.int64_bounded ~min:9007199254740993L ~max:5L ()));
+  Alcotest.(check (triple string string (list string)))
+    "an int's too"
+    ( {|{"type":"integer"}|},
+      "z.int()",
+      [ "test: a bound past 2^53, which a double holds only roughly" ] )
+    (printed (Wiretype.int_bounded ~max:max_int ()));
+  let json, _, _ = printed (Wiretype.uuid ~version:`V7 ()) in
+  Alcotest.(check string)
+    "a UUID's version, which JSON Schema has no format for"
+    {|{"type":"string","format":"uuid","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"}|}
+    json;
+  let _, zod, _ =
+    printed
+      (Wiretype.Object.map Fun.id
+      |> Wiretype.Object.mem "__proto__" Wiretype.int ~enc:Fun.id
+      |> Wiretype.Object.finish)
+  in
+  Alcotest.(check bool)
+    "a member JavaScript would take for the prototype" true
+    (contains ~sub:{|["__proto__"]: z.int(),|} zod)
+
+(* What each printer says of what the rest leave out: exclusive bounds, a
+   deprecated or write-only member, a map keyed by what is no text, an
+   option of an option, and every kind. *)
+let test_each_is_said () =
+  let printed ?(dir = S.Encode) description =
+    let _, root = walked ~dir description in
+    (V.to_string (S.Json_schema.of_t root), S.Zod.of_t root)
+  in
+  Alcotest.(check (pair string string))
+    "exclusive bounds"
+    ( {|{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1}|},
+      "z.number().check(z.gt(0), z.lt(1))" )
+    (printed (Wiretype.number_bounded ~above:0. ~below:1. ()));
+  Alcotest.(check (pair string string))
+    "an int64's bounds"
+    ( {|{"type":"integer","minimum":-5,"maximum":5}|},
+      "z.int().check(z.gte(-5), z.lte(5))" )
+    (printed (Wiretype.int64_bounded ~min:(-5L) ~max:5L ()));
+  Alcotest.(check (pair string string))
+    "an option of an option is one"
+    ({|{"anyOf":[{"type":"integer"},{"type":"null"}]}|}, "z.nullable(z.int())")
+    (printed Wiretype.(nullable (nullable int)));
+  let account =
+    Wiretype.Object.map (fun a b -> (a, b))
+    |> Wiretype.Object.mem "old" Wiretype.int ~deprecated:true ~doc:"gone"
+         ~enc:fst
+    |> Wiretype.Object.mem "password" Wiretype.string ~access:`Write_only
+         ~enc:snd
+    |> Wiretype.Object.finish
+  in
+  let json, zod = printed account in
+  Alcotest.(check bool)
+    "deprecated, in JSON Schema" true
+    (contains
+       ~sub:{|"old":{"type":"integer","description":"gone","deprecated":true}|}
+       json);
+  Alcotest.(check bool)
+    "and in zod" true
+    (contains ~sub:"/** @deprecated gone */" zod);
+  Alcotest.(check bool)
+    "a write-only member in no answer" false
+    (contains ~sub:"password" (json ^ zod));
+  let json, _ = printed ~dir:S.Decode account in
+  Alcotest.(check bool) "and in a request" true (contains ~sub:"password" json);
+  let ctx = S.create () in
+  ignore
+    (S.walk ctx S.Encode ~at:"m" (Wiretype.dict Wiretype.int Wiretype.int)
+      : S.t);
+  Alcotest.(check (list string))
+    "a map keyed by what is no text"
+    [
+      "m: A map's names are text, and its key's description is not. \
+       (key_not_text)";
+    ]
+    (error_lines ctx);
+  let zod description = snd (printed description) in
+  List.iter
+    (fun (name, expected, said) -> Alcotest.(check string) name expected said)
+    [
+      ("an instant", "z.iso.datetime({ offset: true })", zod Wiretype.instant);
+      ("a date", "z.iso.date()", zod Wiretype.date);
+      ( "a duration",
+        "z.iso.duration().check(z.regex(/^P(?:\\d+W|(?=\\d|T\\d)(?:\\d+D)?(?:T(?=\\d)(?:\\d+H)?(?:\\d+M)?(?:\\d+(?:[.,]\\d+)?S)?)?)$/))",
+        zod Wiretype.duration );
+      ("a uuid", "z.uuid()", zod (Wiretype.uuid ()));
+      ( "a uuid of one version",
+        {|z.uuid({ version: "v4" })|},
+        zod (Wiretype.uuid ~version:`V4 ()) );
+      ("base64", "z.base64()", zod Wiretype.base64);
+      ("base64url", "z.base64url()", zod Wiretype.base64url);
+      ("a uri", "z.url()", zod Wiretype.uri);
+      ("an ipv4", "z.ipv4()", zod Wiretype.ipv4);
+      ("an ipv6", "z.ipv6()", zod Wiretype.ipv6);
+    ]
+
+(* Two descriptions under one kind are compared whole, docs and all, since
+   one would be printed for both. *)
+let test_a_kind_is_compared_whole () =
+  let thing doc =
+    Wiretype.Object.map ~kind:"thing" Fun.id
+    |> Wiretype.Object.mem "a" Wiretype.int ~doc ~enc:Fun.id
+    |> Wiretype.Object.finish
+  in
+  let ctx = S.create () in
+  ignore
+    (S.walk ctx S.Encode ~at:"x"
+       (Wiretype.tuple2 (thing "first") (thing "second"))
+      : S.t);
+  Alcotest.(check (list string))
+    "differing in a doc alone"
+    [
+      "x[1]: Two different descriptions share the kind that names Thing. \
+       (kind_shared)";
+    ]
+    (error_lines ctx);
+  let ctx = S.create () in
+  ignore
+    (S.walk ctx S.Encode ~at:"x" (Wiretype.tuple2 (thing "same") (thing "same"))
+      : S.t);
+  Alcotest.(check (list string)) "and alike" [] (error_lines ctx);
+  let base = Wiretype.Object.map ~kind:"thing" Fun.id in
+  let ctx = S.create () in
+  ignore
+    (S.walk ctx S.Encode ~at:"x"
+       (Wiretype.tuple2
+          (base
+          |> Wiretype.Object.mem "a" Wiretype.int ~enc:Fun.id
+          |> Wiretype.Object.finish)
+          (base
+          |> Wiretype.Object.mem "b" Wiretype.int ~enc:Fun.id
+          |> Wiretype.Object.finish))
+      : S.t);
+  Alcotest.(check int)
+    "two objects finished from one start" 1
+    (List.length (error_lines ctx))
+
+(* A component is walked once however often it is used: a chain of kinds,
+   each using the next twice, took twice as long for each link. *)
+let test_a_component_is_walked_once () =
+  let rec chain n =
+    if n = 0 then Wiretype.null ()
+    else
+      let next = chain (n - 1) in
+      Wiretype.Object.map ~kind:(Printf.sprintf "link %d" n) (fun () () -> ())
+      |> Wiretype.Object.mem "a" next ~enc:ignore
+      |> Wiretype.Object.mem "b" next ~enc:ignore
+      |> Wiretype.Object.finish
+  in
+  let deep = chain 24 in
+  let start = Sys.time () in
+  let ctx, _ = walked ~dir:S.Decode deep in
+  Alcotest.(check int) "every link" 24 (List.length (S.components ctx));
+  Alcotest.(check bool) "at once" true (Sys.time () -. start < 0.5)
 
 (* ------------------------------------------------------------------ *)
 (* zod *)
@@ -516,6 +696,13 @@ let () =
             test_what_the_reader_refuses;
           Alcotest.test_case "bounds and kinds are said" `Quick
             test_bounds_and_kinds_are_said;
+          Alcotest.test_case "what the reader means" `Quick
+            test_what_the_reader_means;
+          Alcotest.test_case "each is said" `Quick test_each_is_said;
+          Alcotest.test_case "a kind is compared whole" `Quick
+            test_a_kind_is_compared_whole;
+          Alcotest.test_case "a component is walked once" `Quick
+            test_a_component_is_walked_once;
         ] );
       ( "zod",
         [ Alcotest.test_case "zod says the same" `Quick test_zod_says_the_same ]

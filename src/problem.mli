@@ -35,7 +35,9 @@ type t = { at : segment list; code : code; message : string }
 val path : ?root:string -> segment list -> string
 (** [items[2].count], or [body.items[2].count] with [~root:"body"], and a name
     that is wrong as [scores.purple[name]]; the root itself is [root], or the
-    empty string. *)
+    empty string. A member's name that is empty, or holds anything but letters,
+    digits, [_], [-], [$] and non-ASCII text, is written quoted as JSON --
+    [items["a.b"]] -- so a path is one line, and two are never spelt alike. *)
 
 val to_string : t -> string
 (** One line for a log: where, the sentence, the code. *)

@@ -5,43 +5,39 @@
 
 open Ppxlib
 
-(* Every error the expansion holds, as its message. *)
-let errors =
-  object
-    inherit [string list] Ast_traverse.fold as super
-
-    method! extension ext acc =
-      match ext with
-      | ( { txt = "ocaml.error"; _ },
-          PStr
-            [
-              {
-                pstr_desc =
-                  Pstr_eval
-                    ( { pexp_desc = Pexp_constant (Pconst_string (m, _, _)); _ },
-                      _ );
-                _;
-              };
-            ] ) ->
-          m :: acc
-      | _ -> super#extension ext acc
-  end
-
-let expand source =
-  let structure = Parse.implementation (Lexing.from_string source) in
-  match Driver.map_structure structure with
-  | expanded -> (
-      match errors#structure expanded [] with
-      | [] -> Ok (Format.asprintf "%a" Pprintast.structure expanded)
-      | ms -> Error (String.concat "\n" (List.rev ms)))
-  | exception Location.Error e -> Error (Location.Error.message e)
-
 let contains s sub =
   let n = String.length s and m = String.length sub in
   let rec at i =
     i + m <= n && (String.equal (String.sub s i m) sub || at (i + 1))
   in
   at 0
+
+(* Every error the expansion holds, as its message: each is printed as
+   [[%ocaml.error "..."]], its message an OCaml string literal after any
+   blanks. *)
+let errors expanded =
+  let printed = Format.asprintf "%a" Pprintast.structure expanded in
+  let marker = "[%ocaml.error" in
+  let n = String.length printed and m = String.length marker in
+  let rec from i acc =
+    if i + m > n then List.rev acc
+    else if String.equal (String.sub printed i m) marker then
+      let message =
+        Scanf.sscanf (String.sub printed (i + m) (n - i - m)) " %S" Fun.id
+      in
+      from (i + m) (message :: acc)
+    else from (i + 1) acc
+  in
+  from 0 []
+
+let expand source =
+  let structure = Parse.implementation (Lexing.from_string source) in
+  match Driver.map_structure structure with
+  | expanded -> (
+      match errors expanded with
+      | [] -> Ok (Format.asprintf "%a" Pprintast.structure expanded)
+      | ms -> Error (String.concat "\n" ms))
+  | exception Location.Error e -> Error (Location.Error.message e)
 
 (* A refusal is an error in the output, at its place. *)
 let refused source message () =
@@ -76,7 +72,7 @@ let () =
             (refused
                "type t = { a : int } [@@rename_all pascal] [@@deriving \
                 wiretype]"
-               "write camel, kebab or snake");
+               "[@@rename_all pascal]: write camel, kebab or snake");
           Alcotest.test_case "an abstract type" `Quick
             (refused "type t [@@deriving wiretype]" "is abstract");
           Alcotest.test_case "a map that is not a list of pairs" `Quick
@@ -120,7 +116,7 @@ let () =
               in
               Alcotest.(check int)
                 "three refusals" 3
-                (List.length (errors#structure structure []));
+                (List.length (errors structure));
               Alcotest.(check bool)
                 "c is still derived" true
                 (contains
@@ -134,9 +130,74 @@ let () =
           Alcotest.test_case "two constructors written alike" `Quick
             (refused "type t = A | B [@name \"a\"] [@@deriving wiretype]"
                "two constructors are written \"a\"");
+          Alcotest.test_case "an exclusive bound on an int" `Quick
+            (refused "type t = { a : int [@above 0] } [@@deriving wiretype]"
+               "[@above] and [@below] bound a float; on an int, write [@min] \
+                or [@max]");
+          Alcotest.test_case "an abstract type, and what to write" `Quick
+            (refused "type t [@@deriving wiretype]"
+               "write its description by hand, as json");
+          Alcotest.test_case "an extensible type, and what to write" `Quick
+            (refused "type t = .. [@@deriving wiretype]"
+               "write its description by hand, as json");
+          Alcotest.test_case "a map that is none, and what to write" `Quick
+            (refused "type t = { m : int list [@dict] } [@@deriving wiretype]"
+               "drop [@dict], or describe it with [@with d]");
+          Alcotest.test_case
+            "a bound on what it cannot bound, and what to write" `Quick
+            (refused "type t = { n : string [@min 1] } [@@deriving wiretype]"
+               "drop them, or describe it with [@with d]");
+          Alcotest.test_case "an attribute wiretype has not" `Quick
+            (refused
+               "type t = { a : int [@wiretype.mni 1] } [@@deriving wiretype]"
+               "[@wiretype.mni] is no attribute of wiretype's");
+          Alcotest.test_case "an attribute where wiretype does not read it"
+            `Quick
+            (refused "type t = A [@key \"x\"] | B [@@deriving wiretype]"
+               "[@key] is read on a record's field, not here");
+          Alcotest.test_case "a tag on a type that is no union" `Quick
+            (refused "type t = { a : int } [@@tag \"k\"] [@@deriving wiretype]"
+               "[@@tag] names a union's tag, and t is no union");
+          Alcotest.test_case "an inherited polymorphic variant" `Quick
+            (refused "type a = [ `A ] type t = [ a | `B ] [@@deriving wiretype]"
+               "list its tags");
+          Alcotest.test_case "a polymorphic tag with several types" `Quick
+            (refused "type t = [ `A of int & string ] [@@deriving wiretype]"
+               "has several types");
+          Alcotest.test_case "an unnamed parameter" `Quick
+            (refused "type _ t = { a : int } [@@deriving wiretype]"
+               "a type parameter is named");
+          Alcotest.test_case "a bound beside [@with d]" `Quick
+            (refused
+               "type t = { a : int [@with d] [@min 1] } [@@deriving wiretype]"
+               "is bounded by d");
+          Alcotest.test_case "an item bound on what is no list" `Quick
+            (refused "type t = { a : int [@min_items 1] } [@@deriving wiretype]"
+               "[@min_items] and [@max_items] bound a list");
+          Alcotest.test_case "two polymorphic tags written alike" `Quick
+            (refused "type t = [ `A | `B [@name \"a\"] ] [@@deriving wiretype]"
+               "two constructors are written \"a\"");
         ] );
       ( "accepted",
         [
+          Alcotest.test_case "a signature" `Quick (fun () ->
+              let signature =
+                Driver.map_signature
+                  (Parse.interface
+                     (Lexing.from_string
+                        "type 'a t = { a : 'a } [@@deriving wiretype]\n\
+                         type u = A | B [@@deriving wiretype]"))
+              in
+              let printed =
+                Format.asprintf "%a" Pprintast.signature signature
+              in
+              List.iter
+                (fun sub ->
+                  Alcotest.(check bool) sub true (contains printed sub))
+                [
+                  "val json : 'a Wiretype.t -> 'a t Wiretype.t";
+                  "val u_json : u Wiretype.t";
+                ]);
           Alcotest.test_case "a tuple" `Quick
             (accepted
                "type t = { p : int * string * float } [@@deriving wiretype]");
@@ -153,5 +214,9 @@ let () =
             (accepted
                "type t = { a : int; [@wiretype.deprecated] b : int } \
                 [@@deriving wiretype]");
+          Alcotest.test_case "another deriver's attributes" `Quick
+            (accepted
+               "type t = { a : int [@yojson.key \"b\"] [@ocaml.warning \
+                \"-32\"] } [@@deriving wiretype]");
         ] );
     ]

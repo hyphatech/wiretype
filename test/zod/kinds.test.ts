@@ -8,9 +8,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as z from "zod/mini";
 
-// A browser of null is the runtime's to decide: whether `new URL` refuses a
-// bad Punycode label depends on the IDNA its Node was built with.
-type Row = [text: string, server: boolean, browser: boolean | null];
+type Row = [text: string, server: boolean, browser: boolean];
 
 const duration =
   /^P(?:\d+W|(?=\d|T\d)(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:[.,]\d+)?S)?)?)$/;
@@ -165,9 +163,19 @@ const kinds: [string, z.ZodMiniType, Row[]][] = [
       ["https://xn--nxasmq6b.com/", true, true],
       ["https://xn--mnchen-3ya.de/", true, true],
       ["https://xn--ls8h.la/", true, true],
-      ["https://xn--zz.com/", false, null],
-      ["https://xn--abc-.com/", false, null],
-      ["https://xn--xn--a--gua.pt/", false, null],
+      ["https://xn--zz.com/", false, false],
+      ["https://xn--abc-.com/", false, false],
+      ["https://xn--xn--a--gua.pt/", false, false],
+      ["file:///etc/hosts", true, true],
+      ["file://host/x", true, true],
+      ["file://host:80/x", false, false],
+      ["file://u@host/x", false, false],
+      ["file://1.2.3.999/", false, false],
+      ["foo://", true, true],
+      ["foo://:80", false, false],
+      ["foo://u@", false, false],
+      ["foo://u@:1", false, false],
+      ["http://[1.2.3.4::]/", false, false],
     ],
   ],
   [
@@ -203,6 +211,11 @@ const kinds: [string, z.ZodMiniType, Row[]][] = [
       ["fe80::1%eth0", false, false],
       ["12345::", false, false],
       ["1:2:3:4:5:6:7", false, false],
+      ["1.2.3.4::", false, false],
+      ["1.2.3.4::1", false, false],
+      ["1:1.2.3.4::", false, false],
+      ["1:2:3:4:5:6:1.2.3.4", true, true],
+      ["1:2:3:4:5:6:7:1.2.3.4", false, false],
     ],
   ],
 ];
@@ -210,6 +223,8 @@ const kinds: [string, z.ZodMiniType, Row[]][] = [
 // A value, a step, and whether the value is a multiple of it: the rows of
 // test/test_wiretype.ml's multiple_rows, which the server decides alike.
 const multiples: [value: number, step: number, multiple: boolean][] = [
+  [0, 0.01, true],
+  [-19.99, 0.01, true],
   [19.99, 0.01, true],
   [0.3, 0.1, true],
   [2.03, 0.07, true],
@@ -230,12 +245,37 @@ describe("multipleOf, as zod reads it", () => {
   }
 });
 
+// A whole number, a step, and whether the one is a multiple of the other:
+// the rows of test/test_wiretype.ml's int_multiple_rows, through the exact
+// check the schema prints for an int, since zod's multipleOf allows a
+// rounding error that takes 3000000000000001 for a multiple of 3.
+const intMultiples: [value: number, step: number, multiple: boolean][] = [
+  [0, 3, true],
+  [-9, 3, true],
+  [10, 3, false],
+  [3000000000000000, 3, true],
+  [3000000000000001, 3, false],
+  [9007199254740991, 7, false],
+];
+
+describe("an int's multiple, as the printed check reads it", () => {
+  for (const [value, step, multiple] of intMultiples) {
+    test(`${value} a multiple of ${step}: ${multiple}`, () => {
+      const read = z
+        .int()
+        .check(z.refine((n) => n % step === 0))
+        .safeParse(value).success;
+      assert.equal(read, multiple);
+    });
+  }
+});
+
 describe("the kinds, as zod reads them", () => {
   for (const [name, schema, rows] of kinds) {
     for (const [text, server, browser] of rows) {
       test(`${name} ${JSON.stringify(text)}: server ${server}, browser ${browser}`, () => {
         const read = schema.safeParse(text).success;
-        if (browser !== null) assert.equal(read, browser);
+        assert.equal(read, browser);
         // The rule itself: nothing the server takes is refused here.
         if (server) assert.equal(read, true);
       });

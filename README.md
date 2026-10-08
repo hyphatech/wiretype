@@ -126,7 +126,8 @@ and accepts no string that check refuses.
 `Wiretype.Schema` walks a description once and prints it as JSON Schema
 2020-12 and as zod/mini, so the two cannot disagree. A named object is a
 component; a request's schema and an answer's differ where a member is
-read-only, write-only or optional, and the request's is then
+read-only, write-only, or an `opt_mem` a request may give as `null`, and
+the request's is then
 `<Name>Input`, whatever else is walked. An object that refuses members it
 does not describe says so in both. Bounds -- ranges, `multiple_of`,
 lengths, counts -- are in both.

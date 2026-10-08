@@ -34,12 +34,13 @@
     {b What a description is} is {!Shape}, public and walked by the decoder, the
     encoder and {!Schema}, which prints JSON Schema and zod from it.
 
-    {b A description that can mean nothing} -- a [multiple_of] that is not
-    positive, two values written as one word, a member described twice, an
-    object with two unions -- raises [Invalid_argument] where it is built, as
-    each function below says: a description is a constant written in source, so
-    the mistake is found when the program starts, or in its first test, and
-    never on a request. *)
+    {b A description that can mean nothing} -- such as a bound that is no finite
+    number, a [multiple_of] that is not positive, two values written as one
+    word, a member described twice, an object with two unions, or a member
+    written by leaving it out that is read as required -- raises
+    [Invalid_argument] where it is built, as each function below says: a
+    description is a constant written in source, so the mistake is found when
+    the program starts, or in its first test, and never on a request. *)
 
 (** Any JSON value, and its description. *)
 module Value : sig
@@ -64,14 +65,16 @@ type 'a t = 'a Shape.t
 (** {1 Reading and writing} *)
 
 val decode : ?max_depth:int -> 'a t -> string -> ('a, Problem.t list) result
-(** [max_depth] is how deep the document may nest, 512 unless given. *)
+(** [max_depth] is how deep the document may nest, 512 unless given and never
+    more than 10,000. *)
 
 val encode : 'a t -> 'a -> (string, Unwritable.t) result
 (** [Error] is the first place that could not be written, and why: a description
-    made only to read, a value its kind cannot spell, or what would make a
-    document {!decode} refuses -- text that is not UTF-8, a member or a map's
-    name written twice, nesting past 512. What [encode] writes, [decode] reads.
-*)
+    made only to read, a value its kind cannot spell -- a float that is not
+    finite, a value an enum has no word for, a case its union does not have --
+    or what would make a document {!decode} refuses: text that is not UTF-8, a
+    member or a map's name written twice, nesting past 512. What [encode]
+    writes, [decode] reads. *)
 
 val to_value : 'a t -> 'a -> (Value.t, Unwritable.t) result
 (** The value as the JSON {!encode} writes for it. *)
@@ -97,8 +100,8 @@ val int : int t
     past it: an id that may be larger travels as text, through {!kind}. *)
 
 val int_bounded : ?min:int -> ?max:int -> ?multiple_of:int -> unit -> int t
-(** Checked while reading, and stated in the schema. Raises [Invalid_argument]
-    where [multiple_of] is not positive. *)
+(** Checked while reading, and stated in the schema; [multiple_of] exactly.
+    Raises [Invalid_argument] where [multiple_of] is not positive. *)
 
 val int64 : int64 t
 (** As {!int}, to 2{^ 63}: past 2{^ 53}, a JavaScript client can neither hold it
@@ -110,7 +113,7 @@ val int64_bounded :
 
 val number : float t
 (** A JSON number, as a double; one that overflows a double is too large. A
-    non-finite float is written [null]. *)
+    non-finite float is no JSON number, and is not written. *)
 
 val number_bounded :
   ?min:float ->
@@ -121,10 +124,10 @@ val number_bounded :
   unit ->
   float t
 (** [min] and [max] are at least and at most; [above] and [below] greater and
-    less than. [multiple_of] is decided as zod's [multipleOf] decides it -- the
-    quotient a whole number to within a few rounding errors -- so [19.99] is a
-    multiple of [0.01]. Raises [Invalid_argument] where [multiple_of] is not a
-    positive finite number. *)
+    less than. [multiple_of] holds where the quotient is a whole number to
+    within a few rounding errors, so [19.99] is a multiple of [0.01], as the
+    decimals written mean. Raises [Invalid_argument] where a bound is not a
+    finite number, or [multiple_of] is not a positive one. *)
 
 val string : string t
 (** Text, checked as UTF-8. *)
@@ -161,7 +164,8 @@ val duration : int t
 
 val uuid : ?version:Shape.uuid_version -> unit -> string t
 (** RFC 9562, lower-cased: versions 1 to 8, with the nil and the max UUID, or
-    the one version asked for. *)
+    the one version asked for. The max UUID is read in lower case alone, as zod
+    reads it. *)
 
 val base64 : string t
 (** Bytes, as RFC 4648 §4's padded base64. *)
@@ -171,17 +175,24 @@ val base64url : string t
 
 val uri : string t
 (** RFC 3986, less what the URL standard refuses: a port past 65535, an
-    [IPvFuture] host, an [http], [https], [ws], [wss] or [ftp] URI with no host
-    or a host that is not a domain or an address. An [xn--] label is decoded as
-    Punycode and held to UTS #46 as the URL standard applies it, with Unicode
-    15.0.0's tables, the bidi rule of RFC 5893 across the host included. It is
-    refused, where a browser might take it, when it holds a joiner or a code
-    point that may not be in NFC, since both need a context or a normalisation
-    the tables alone cannot check, or when it decodes to nothing but ASCII or to
-    another [xn--]. *)
+    [IPvFuture] host, an empty host after userinfo or before a port, an [http],
+    [https], [ws], [wss] or [ftp] URI with no host or a host that is not a
+    domain or an address, and a [file] URI with userinfo, a port, or a host that
+    is not empty, a domain or an address. An [xn--] label is decoded as Punycode
+    and held to UTS #46 as the URL standard applies it, with Unicode 15.0.0's
+    tables, the bidi rule of RFC 5893 across the host included. It is refused,
+    where a browser might take it, when it holds a joiner or a code point that
+    may not be in NFC, since both need a context or a normalisation the tables
+    alone cannot check, when it is longer than the 63 octets DNS allows a label,
+    or when it decodes to nothing but ASCII or to another [xn--]. *)
 
 val ipv4 : string t
+(** Dotted decimal: four numbers to 255, none with a leading zero. *)
+
 val ipv6 : string t
+(** RFC 4291 §2.2's full and compressed forms, with a dotted IPv4 address in the
+    last thirty-two bits, kept as written: [FE80::1] stays in upper case. A zone
+    ([%eth0]) is no part of an address, and is refused. *)
 
 (** {1 Descriptions of descriptions} *)
 
@@ -294,10 +305,10 @@ module Object : sig
     ('o, 'a -> 'b) map ->
     ('o, 'b) map
   (** A member. Without [absent] it is required; with it, it may be left out and
-      reads as [absent]. [omit] says which values are written by leaving it out.
-      [enc] is how it is found in a value; without it the object only reads.
-      [`Read_only] leaves it out of a request's schema and [`Write_only] out of
-      an answer's. *)
+      reads as [absent]. [omit] says which values are written by leaving it out,
+      and needs [absent] where the object is read. [enc] is how it is found in a
+      value; without it the object only reads. [`Read_only] leaves it out of a
+      request's schema and [`Write_only] out of an answer's. *)
 
   val opt_mem :
     ?doc:string ->
@@ -335,9 +346,11 @@ module Object : sig
   val finish : ('o, 'o) map -> 'o t
   (** Raises [Invalid_argument] where a member's name is given twice -- among
       the object's members, its union's tag, and each case's members -- where
-      two cases' tags are written alike or one cannot be written, or where the
-      object has two unions: the tag is read before the members it decides, so
-      an object has one. *)
+      two cases' tags are written alike or one cannot be written, where the
+      object has two unions -- the tag is read before the members it decides, so
+      an object has one -- or where an object that is read has a member, or a
+      tag, with [omit] and no [absent], which it would write by leaving out and
+      read as required. *)
 
   (** The cases of a union. *)
   module Case : sig

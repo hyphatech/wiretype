@@ -213,22 +213,29 @@ let no_banned_identifier () =
   Alcotest.(check (list string)) "banned identifiers" [] found
 
 (* Every local open, [M.(...)], [M.[...]] or [M.{...}], with its line and
-   module: a bracket after a path whose last name is capitalised. An array's
-   or a string's index follows a value's name, which is not. An operator
-   reached by its path, [M.( + )], is matched too; bind it to a name. *)
+   module: a bracket after a path whose last name is capitalised, with any
+   blanks between, since ocamlformat may break the line after the dot. An
+   array's or a string's index follows a value's name, which is not. An
+   operator reached by its path, [M.( + )], is matched too; bind it to a
+   name. *)
 let local_opens code =
   let n = String.length code in
   let is_name_char = function
     | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '\'' -> true
     | _ -> false
   in
+  let rec bracket_after i =
+    i < n
+    &&
+    match code.[i] with
+    | ' ' | '\n' | '\t' | '\r' -> bracket_after (i + 1)
+    | '(' | '[' | '{' -> true
+    | _ -> false
+  in
   let rec go i line acc =
     if i + 1 >= n then List.rev acc
     else if Char.equal code.[i] '\n' then go (i + 1) (line + 1) acc
-    else if
-      Char.equal code.[i] '.'
-      && match code.[i + 1] with '(' | '[' | '{' -> true | _ -> false
-    then (
+    else if Char.equal code.[i] '.' && bracket_after (i + 1) then (
       let j = ref i in
       while !j > 0 && is_name_char code.[!j - 1] do
         decr j

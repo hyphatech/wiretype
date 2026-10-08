@@ -36,26 +36,31 @@ let first_repeated words =
 
 let about ?(kind = "") ?(doc = "") () : S.about = { kind; doc }
 
-let rec name : type a. a t -> string = function
-  | S.Null _ -> "null"
-  | S.Bool -> "boolean"
-  | S.Int _ | S.Int64 _ -> "integer"
-  | S.Number _ -> "number"
-  | S.String _ -> "string"
-  | S.Enum (about, _) -> or_ about "enum"
-  | S.List l -> "list of " ^ name l.elt
-  | S.Tuple _ -> "tuple"
-  | S.Dict d -> "map of " ^ name d.value
-  | S.Nullable t -> name t ^ " or null"
-  | S.Object (about, _) -> or_ about "object"
-  | S.Any (about, _) -> or_ about "value"
-  | S.Map (about, m) ->
-      if String.equal about.kind "" then name m.inner else about.kind
-  | S.Value -> "JSON"
-  | S.Rec l -> name (Lazy.force l)
-
-and or_ (about : S.about) default =
-  if String.equal about.kind "" then default else about.kind
+(* A description of itself is named once: inside it, a description of
+   itself again is "itself", which also ends the walk. *)
+let name t =
+  let rec name : type a. inside:bool -> a t -> string =
+   fun ~inside -> function
+     | S.Null _ -> "null"
+     | S.Bool -> "boolean"
+     | S.Int _ | S.Int64 _ -> "integer"
+     | S.Number _ -> "number"
+     | S.String _ -> "string"
+     | S.Enum (about, _) -> or_ about "enum"
+     | S.List l -> "list of " ^ name ~inside l.elt
+     | S.Tuple _ -> "tuple"
+     | S.Dict d -> "map of " ^ name ~inside d.value
+     | S.Nullable t -> name ~inside t ^ " or null"
+     | S.Object (about, _) -> or_ about "object"
+     | S.Any (about, _) -> or_ about "value"
+     | S.Map (about, m) ->
+         if String.equal about.kind "" then name ~inside m.inner else about.kind
+     | S.Value -> "JSON"
+     | S.Rec l -> if inside then "itself" else name ~inside:true (Lazy.force l)
+  and or_ (about : S.about) default =
+    if String.equal about.kind "" then default else about.kind
+  in
+  name ~inside:false t
 
 let null v = S.Null v
 let bool = S.Bool
@@ -82,9 +87,17 @@ let number =
     { min = None; max = None; above = None; below = None; multiple_of = None }
 
 let number_bounded ?min ?max ?above ?below ?multiple_of () =
+  List.iter
+    (fun (name, bound) ->
+      match bound with
+      | Some b when not (Float.is_finite b) ->
+          malformed "number_bounded" "%s is %g, and must be a finite number"
+            name b
+      | Some _ | None -> ())
+    [ ("min", min); ("max", max); ("above", above); ("below", below) ];
   (match multiple_of with
   | Some m when not (Float.is_finite m && Float.compare m 0. > 0) ->
-      malformed "number_bounded" "multiple_of is %h, and must be positive" m
+      malformed "number_bounded" "multiple_of is %g, and must be positive" m
   | Some _ | None -> ());
   S.Number { min; max; above; below; multiple_of }
 
@@ -288,22 +301,59 @@ module Object = struct
 
   let error_unknown m = { m with unknown = S.Refuse }
 
-  (* The members' names and the unions' tags, in the order declared. *)
-  let rec names : type o f. (o, f) S.fields -> string list * string list =
-    function
-    | S.Build _ | S.Unread -> ([], [])
-    | S.Mem (prev, m) ->
-        let members, tags = names prev in
-        (members @ [ m.name ], tags)
-    | S.Cases (prev, S.Tagged t) ->
-        let members, tags = names prev in
-        (members, tags @ [ t.name ])
+  (* The members' names and the unions' tags, in the order declared: the
+     fields hold the last declared outermost. *)
+  let names fields =
+    let rec go : type o f.
+        string list ->
+        string list ->
+        (o, f) S.fields ->
+        string list * string list =
+     fun members tags -> function
+       | S.Build _ | S.Unread -> (members, tags)
+       | S.Mem (prev, m) -> go (m.name :: members) tags prev
+       | S.Cases (prev, S.Tagged t) -> go members (t.name :: tags) prev
+    in
+    go [] [] fields
 
   (* An object has one union, since the tag that chooses a case is read
      before the members it decides, and every name is one member's: a
      document could hold it only once. *)
+  (* Whether the object is read: built by a function, not written alone. *)
+  let rec read : type o f. (o, f) S.fields -> bool = function
+    | S.Build _ -> true
+    | S.Unread -> false
+    | S.Mem (prev, _) -> read prev
+    | S.Cases (prev, _) -> read prev
+
+  (* A member a value is written by leaving out, read where it has no
+     [absent], which a reader would call required: the first, if any. *)
+  let rec left_out : type o f. (o, f) S.fields -> string option = function
+    | S.Build _ | S.Unread -> None
+    | S.Mem (prev, m) -> (
+        match left_out prev with
+        | Some name -> Some name
+        | None -> (
+            match (m.omit, m.absent) with
+            | Some _, None -> Some m.name
+            | Some _, Some _ | None, _ -> None))
+    | S.Cases (prev, S.Tagged t) -> (
+        match left_out prev with
+        | Some name -> Some name
+        | None -> (
+            match (t.omit, t.absent) with
+            | Some _, None -> Some t.name
+            | Some _, Some _ | None, _ -> None))
+
   let finish m =
     let members, tags = names m.fields in
+    (if read m.fields then
+       match left_out m.fields with
+       | Some name ->
+           malformed "Object.finish"
+             "the member %S is left out by omit and has no absent to be read as"
+             name
+       | None -> ());
     (match tags with
     | first :: second :: _ ->
         malformed "Object.finish"
@@ -340,21 +390,36 @@ module Object = struct
                   name (spelled (S.Case cm))
             | None -> ())
           t.cases);
-    S.Object (m.about, { unknown = m.unknown; fields = m.fields })
+    (* A record of its own, since a schema takes one [about] for one
+       description, and one start may be finished into several. *)
+    S.Object
+      ( { m.about with kind = m.about.kind },
+        { unknown = m.unknown; fields = m.fields } )
 
   module Case = struct
     type ('c, 'k, 'tag) map = ('c, 'k, 'tag) S.case_map
 
+    (* The object a description is: one reached through [rec'] has been
+       made by now, unless it is the union this case is of, which is being
+       made, and no object. *)
+    let rec object_of : type k. k S.t -> (S.about * k S.obj) option = function
+      | S.Object (about, o) -> Some (about, o)
+      | S.Rec l -> (
+          match Lazy.force l with
+          | t -> object_of t
+          | exception Lazy.Undefined -> None)
+      | _ -> None
+
     let map (type k) ?dec tag (obj : k S.t) : (_, k, _) map =
-      match obj with
-      | S.Object (case_about, o) -> (
+      match object_of obj with
+      | Some (case_about, o) -> (
           match Encode.find_cases o.fields with
           | None -> { tag; case_about; obj = o; build = dec }
           | Some _ ->
               malformed "Object.Case.map"
                 "a case is an object with no union of its own, since an object \
                  has one")
-      | _ -> malformed "Object.Case.map" "a case is an object"
+      | None -> malformed "Object.Case.map" "a case is an object"
 
     let make m = S.Case m
     let value m k = S.Case_value (m, k)

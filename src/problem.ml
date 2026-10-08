@@ -36,17 +36,34 @@ let code_to_string = function
 
 type t = { at : segment list; code : code; message : string }
 
+(* A name is written bare where nothing in it could be read as a path's own
+   punctuation or end a log line, and quoted as JSON otherwise, so a path is
+   one line and two paths are never spelt alike. *)
+let plain name =
+  (not (String.equal name ""))
+  && String.for_all
+       (function
+         | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '-' | '$' -> true
+         | c -> Char.code c >= 0x80)
+       name
+
 let path ?(root = "") at =
   let b = Buffer.create 32 in
   Buffer.add_string b root;
+  let name n =
+    if not (plain n) then (
+      Buffer.add_char b '[';
+      Text.string b n;
+      Buffer.add_char b ']')
+    else (
+      if Buffer.length b > 0 then Buffer.add_char b '.';
+      Buffer.add_string b n)
+  in
   List.iter
     (function
-      | Member name ->
-          if Buffer.length b > 0 then Buffer.add_char b '.';
-          Buffer.add_string b name
-      | Name name ->
-          if Buffer.length b > 0 then Buffer.add_char b '.';
-          Buffer.add_string b name;
+      | Member n -> name n
+      | Name n ->
+          name n;
           Buffer.add_string b "[name]"
       | Index i -> Buffer.add_string b (Printf.sprintf "[%d]" i))
     at;

@@ -330,6 +330,13 @@ let not_a_uuid version =
         (uuid_version_number v)
   | None -> "This must be a UUID, like 01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d."
 
+(* One version's UUID as the reader takes it, in either case, for a schema
+   whose format names no version. *)
+let uuid_pattern v =
+  Printf.sprintf
+    "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-%d[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    (uuid_version_number v)
+
 let uuid_of_string ?version s =
   let shaped =
     String.length s = 36
@@ -460,24 +467,24 @@ let ipv4 s =
          && int_of_string p <= 255)
        parts
 
-(* The full and compressed forms, and -- where [dotted] -- a dotted IPv4
-   address in the last thirty-two bits, as RFC 4291 §2.2 writes one. *)
-let ipv6 ~dotted s =
+(* The full and compressed forms, and a dotted IPv4 address in the last
+   thirty-two bits, as RFC 4291 §2.2 writes one: only at the end of the
+   address, so never before a "::". *)
+let ipv6 s =
   let group g =
     String.length g >= 1 && String.length g <= 4 && String.for_all hex g
   in
-  let groups part =
+  (* How many sixteen-bit groups [part] holds, where [last] says it ends the
+     address; counted as a tail call, since nothing bounds the input. *)
+  let groups ~last part =
+    let rec count n = function
+      | [] -> Some n
+      | [ g ] when last && String.contains g '.' ->
+          if ipv4 g then Some (n + 2) else None
+      | g :: rest -> if group g && n < 8 then count (n + 1) rest else None
+    in
     if String.equal part "" then Some 0
-    else
-      let gs = String.split_on_char ':' part in
-      let rec count = function
-        | [] -> Some 0
-        | [ last ] when dotted && String.contains last '.' ->
-            if ipv4 last then Some 2 else None
-        | g :: rest ->
-            if group g then Option.map (( + ) 1) (count rest) else None
-      in
-      count gs
+    else count 0 (String.split_on_char ':' part)
   in
   let rec split_double i =
     if i + 1 >= String.length s then None
@@ -485,7 +492,8 @@ let ipv6 ~dotted s =
     else split_double (i + 1)
   in
   match split_double 0 with
-  | None -> ( match groups s with Some 8 -> true | Some _ | None -> false)
+  | None -> (
+      match groups ~last:true s with Some 8 -> true | Some _ | None -> false)
   | Some i -> (
       let left = String.sub s 0 i
       and right = String.sub s (i + 2) (String.length s - i - 2) in
@@ -499,7 +507,7 @@ let ipv6 ~dotted s =
       if String.length right >= 1 && Char.equal right.[0] ':' then false
       else if not (clean left && clean right) then false
       else
-        match (groups left, groups right) with
+        match (groups ~last:false left, groups ~last:true right) with
         | Some l, Some r -> l + r <= 7
         | _ -> false)
 
@@ -507,7 +515,7 @@ let ipv4_of_string s =
   if ipv4 s then Ok s else Error "This must be an IPv4 address, like 192.0.2.1."
 
 let ipv6_of_string s =
-  if ipv6 ~dotted:true s then Ok s
+  if ipv6 s then Ok s
   else Error "This must be an IPv6 address, like 2001:db8::1."
 
 (* ------------------------------------------------------------------ *)
@@ -706,18 +714,22 @@ let bidi_label cps =
       | _ -> false)
   | AN | EN | ES | CS | ET | ON | BN | NSM | Other -> false
 
-(* The schemes the URL standard calls special, whose host must be a domain
-   or an address: for them a host is required, and read narrowly -- letters,
-   digits, [-] and [_] in dotted labels, and one ending in a number is a
-   dotted IPv4 address -- because the URL standard refuses much of what RFC
-   3986's registered name allows. A label in [xn--] is decoded and checked
-   as the URL standard checks one, against Unicode 15.0.0's own tables,
-   which current browsers have and older ones do not all have: a code point
-   newer than that is refused. *)
-let special scheme =
+(* What the URL standard makes of a scheme. Its special schemes have a host
+   that must be a domain or an address: for them a host is required, and
+   read narrowly -- letters, digits, [-] and [_] in dotted labels, and one
+   ending in a number is a dotted IPv4 address -- because the URL standard
+   refuses much of what RFC 3986's registered name allows. [file] is special
+   too, but its host may be empty and takes no userinfo or port. A label in
+   [xn--] is decoded and checked as the URL standard checks one, against
+   Unicode 15.0.0's own tables, which current browsers have and older ones
+   do not all have: a code point newer than that is refused. *)
+type scheme = Special | File | Other
+
+let scheme_of_string scheme =
   match String.lowercase_ascii scheme with
-  | "http" | "https" | "ws" | "wss" | "ftp" -> true
-  | _ -> false
+  | "http" | "https" | "ws" | "wss" | "ftp" -> Special
+  | "file" -> File
+  | _ -> Other
 
 let domain host =
   let host =
@@ -737,9 +749,14 @@ let domain host =
     then
       let l = String.lowercase_ascii l in
       if String.length l >= 4 && String.equal (String.sub l 0 4) "xn--" then
-        match punycode (String.sub l 4 (String.length l - 4)) with
-        | Some cps when unicode_label cps -> Some cps
-        | Some _ | None -> None
+        (* An A-label is at most 63 octets, as DNS has a label (RFC 5890
+           §2.3.2.1), which also bounds the decoding, whose time grows with
+           the square of the label's length. *)
+        if String.length l > 63 then None
+        else
+          match punycode (String.sub l 4 (String.length l - 4)) with
+          | Some cps when unicode_label cps -> Some cps
+          | Some _ | None -> None
       else Some (Array.init (String.length l) (fun i -> Char.code l.[i]))
     else None
   in
@@ -765,7 +782,7 @@ let port s =
   String.for_all digit s
   && (String.equal s "" || (String.length s <= 5 && int_of_string s <= 65535))
 
-let authority ~special s =
+let authority ~scheme s =
   (* At most one '@', since neither side may hold one. *)
   let userinfo, hostport =
     match String.index_opt s '@' with
@@ -774,42 +791,57 @@ let authority ~special s =
     | None -> (None, s)
   in
   let userinfo_ok =
-    match userinfo with
-    | None -> true
-    | Some u ->
+    match (userinfo, scheme) with
+    | None, _ -> true
+    | Some _, File -> false
+    | Some u, (Special | Other) ->
         chars
           (fun c -> unreserved c || sub_delim c || Char.equal c ':')
           u 0 (String.length u)
   in
-  let host_ok, port_ok =
+  let port_ok p =
+    match (p, scheme) with
+    | None, _ -> true
+    | Some _, File -> false
+    | Some p, (Special | Other) -> port p
+  in
+  (* The URL standard refuses an empty host where userinfo or a port says
+     one was meant, whatever the scheme. *)
+  let named h p =
+    (if String.equal h "" then
+       match scheme with
+       | Special -> false
+       | File | Other -> Option.is_none userinfo && Option.is_none p
+     else
+       match scheme with
+       | Special | File -> domain h
+       | Other ->
+           chars (fun c -> unreserved c || sub_delim c) h 0 (String.length h))
+    && port_ok p
+  in
+  let host_ok =
     if String.length hostport > 0 && Char.equal hostport.[0] '[' then
       match String.index_opt hostport ']' with
-      | None -> (false, false)
-      | Some j ->
-          let literal = String.sub hostport 1 (j - 1) in
-          let after =
-            String.sub hostport (j + 1) (String.length hostport - j - 1)
-          in
+      | None -> false
+      | Some j -> (
           (* An IPvFuture literal is RFC 3986's and not the URL standard's. *)
-          ( ipv6 ~dotted:true literal,
-            String.equal after ""
-            || Char.equal after.[0] ':'
-               && port (String.sub after 1 (String.length after - 1)) )
+          ipv6 (String.sub hostport 1 (j - 1))
+          &&
+          match
+            String.sub hostport (j + 1) (String.length hostport - j - 1)
+          with
+          | "" -> true
+          | after ->
+              Char.equal after.[0] ':'
+              && port_ok (Some (String.sub after 1 (String.length after - 1))))
     else
-      let h, p =
-        match String.index_opt hostport ':' with
-        | Some i ->
-            ( String.sub hostport 0 i,
-              Some
-                (String.sub hostport (i + 1) (String.length hostport - i - 1))
-            )
-        | None -> (hostport, None)
-      in
-      ( (if special then (not (String.equal h "")) && domain h
-         else chars (fun c -> unreserved c || sub_delim c) h 0 (String.length h)),
-        match p with None -> true | Some p -> port p )
+      match String.index_opt hostport ':' with
+      | Some i ->
+          named (String.sub hostport 0 i)
+            (Some (String.sub hostport (i + 1) (String.length hostport - i - 1)))
+      | None -> named hostport None
   in
-  userinfo_ok && host_ok && port_ok
+  userinfo_ok && host_ok
 
 let uri_of_string s =
   let n = String.length s in
@@ -855,7 +887,7 @@ let uri_of_string s =
               ~default:(String.length rest)
           in
           let auth = String.sub rest 0 slash in
-          authority ~special:(special scheme) auth
+          authority ~scheme:(scheme_of_string scheme) auth
           && chars
                (fun ch -> pchar ch || Char.equal ch '/')
                rest slash (String.length rest)
@@ -863,7 +895,9 @@ let uri_of_string s =
           (* With no authority a special scheme has no host, which the URL
              standard reads as the path's first segment: refused here, so a
              host is always written as one. *)
-          (not (special scheme))
+          (match scheme_of_string scheme with
+            | Special -> false
+            | File | Other -> true)
           && chars
                (fun ch -> pchar ch || Char.equal ch '/')
                hier 0 (String.length hier)

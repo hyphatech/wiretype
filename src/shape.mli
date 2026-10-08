@@ -10,7 +10,10 @@
 
 type about = { kind : string; doc : string }
 (** What a description is called -- a component's name, where it is an object --
-    and what it is, for whoever documents it. Empty when it has neither. *)
+    and what it is, for whoever documents it. Empty when it has neither. An
+    object's is its own record: {!Schema} walks an object once for each [about]
+    it meets, physically, and takes another object with the same record for the
+    same one. *)
 
 type int_bounds = {
   min : int option;

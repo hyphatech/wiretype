@@ -67,6 +67,124 @@ module A = struct
       Fun.id
 end
 
+(* Where an attribute is written. *)
+type site = Field | Type | Constructor | Declaration
+
+let site_name = function
+  | Field -> "a record's field"
+  | Type -> "a type"
+  | Constructor -> "a constructor"
+  | Declaration -> "the type's declaration, as [@@...]"
+
+(* Where each attribute is read, by its short name. An attribute spelt
+   [wiretype.x] for no [x] here, or one of these where it is not read, is
+   refused, since it would say nothing; a short name not here is another
+   deriver's, and [deprecated] on its own is OCaml's. *)
+let read_on =
+  List.map
+    (fun n -> (n, [ Field ]))
+    [
+      "key";
+      "default";
+      "min";
+      "max";
+      "above";
+      "below";
+      "multiple_of";
+      "min_length";
+      "max_length";
+      "min_items";
+      "max_items";
+      "min_properties";
+      "max_properties";
+      "examples";
+      "read_only";
+      "write_only";
+      "deprecated";
+    ]
+  @ [
+      ("with", [ Field; Type ]);
+      ("dict", [ Field; Type ]);
+      ("name", [ Constructor ]);
+      ("tag", [ Declaration ]);
+      ("kind", [ Declaration ]);
+      ("rename_all", [ Declaration ]);
+    ]
+
+let check_attributes site (attrs : attributes) =
+  List.iter
+    (fun (a : attribute) ->
+      let name = a.attr_name.txt in
+      let prefix = "wiretype." in
+      let short, prefixed =
+        if String.starts_with ~prefix name then
+          ( String.sub name (String.length prefix)
+              (String.length name - String.length prefix),
+            true )
+        else (name, false)
+      in
+      let loc = a.attr_loc in
+      match List.assoc_opt short read_on with
+      | None ->
+          if prefixed then
+            Location.raise_errorf ~loc
+              "wiretype: [@%s] is no attribute of wiretype's; ppx_wiretype's \
+               .mli lists them"
+              name
+      | Some sites ->
+          if
+            (not (List.mem site sites))
+            && (prefixed || not (String.equal short "deprecated"))
+          then
+            Location.raise_errorf ~loc "wiretype: [@%s] is read on %s, not here"
+              name
+              (String.concat " or " (List.map site_name sites)))
+    attrs
+
+let rec check_core_type (ct : core_type) =
+  check_attributes Type ct.ptyp_attributes;
+  match ct.ptyp_desc with
+  | Ptyp_constr (_, cts) | Ptyp_tuple cts | Ptyp_class (_, cts) ->
+      List.iter check_core_type cts
+  | Ptyp_arrow (_, a, b) ->
+      check_core_type a;
+      check_core_type b
+  | Ptyp_alias (ct, _) | Ptyp_poly (_, ct) -> check_core_type ct
+  | Ptyp_variant (rows, _, _) ->
+      List.iter
+        (fun (rf : row_field) ->
+          check_attributes Constructor rf.prf_attributes;
+          match rf.prf_desc with
+          | Rtag (_, _, cts) -> List.iter check_core_type cts
+          | Rinherit ct -> check_core_type ct)
+        rows
+  | Ptyp_any | Ptyp_var _ | Ptyp_object _ | Ptyp_package _ | Ptyp_extension _
+  | Ptyp_open _ ->
+      ()
+
+let check_fields (lds : label_declaration list) =
+  List.iter
+    (fun (ld : label_declaration) ->
+      check_attributes Field ld.pld_attributes;
+      check_core_type ld.pld_type)
+    lds
+
+(* Every attribute of a declaration, where it is written. *)
+let check_declaration (td : type_declaration) =
+  check_attributes Declaration td.ptype_attributes;
+  (match td.ptype_kind with
+  | Ptype_record lds -> check_fields lds
+  | Ptype_variant cds ->
+      List.iter
+        (fun (cd : constructor_declaration) ->
+          check_attributes Constructor cd.pcd_attributes;
+          match cd.pcd_args with
+          | Pcstr_tuple cts -> List.iter check_core_type cts
+          | Pcstr_record lds -> check_fields lds)
+        cds
+  | Ptype_abstract | Ptype_open -> ());
+  Option.iter check_core_type td.ptype_manifest
+
 (* A doc comment is an [ocaml.doc] attribute holding its text. *)
 let doc_of attrs =
   List.find_map
@@ -142,8 +260,8 @@ let spelling_of ~loc = function
   | "camel" -> Camel
   | "kebab" -> Kebab
   | other ->
-      Location.raise_errorf ~loc
-        "wiretype: [@@rename_all %s]: write camel, kebab or snake" other
+      Location.raise_errorf ~loc "wiretype: %s: write camel, kebab or snake"
+        ("[@@rename_all " ^ other ^ "]")
 
 (* An OCaml name as its word on the wire: a keyword's trailing [_] dropped,
    and the words between underscores spelt as asked. *)
@@ -183,7 +301,10 @@ let rec json_lid = function
   | Ldot (m, n) -> Ldot (m, json_name n)
   | Lapply (a, b) -> Lapply (a, json_lid b)
 
-let var_json v = v ^ "_json"
+(* A parameter's description, as the derived function's argument: a name no
+   type's description has, so a type the parameter is named after is still
+   reached. *)
+let param_desc v = "wiretype_param_" ^ v
 
 (* ------------------------------------------------------------------ *)
 (* Core types *)
@@ -191,8 +312,12 @@ let var_json v = v ^ "_json"
 type env = {
   group : string list;  (** the types of this declaration group *)
   recursive : bool;  (** whether the group refers to itself *)
-  params : bool;  (** whether the group's types take parameters *)
+  parameterised : string list;  (** those of them that take parameters *)
 }
+
+(* [e acc], which is what [acc |> e] says, with no pipe a caller may have
+   bound to something else where it is derived. *)
+let pipe ~loc acc e = B.pexp_apply ~loc e [ (Nolabel, acc) ]
 
 let rec desc env (ct : core_type) =
   let loc = ct.ptyp_loc in
@@ -219,8 +344,9 @@ let rec desc env (ct : core_type) =
       | Ptyp_constr ({ txt = Lident n; _ }, args)
         when env.recursive && List.mem n env.group ->
           (* A type of the group is not yet defined where it is referred to:
-             its description is reached through the one being made. *)
-          if env.params then
+             its description is reached through the one being made, a
+             function where it takes parameters and a lazy one where not. *)
+          if List.mem n env.parameterised then
             B.eapply ~loc (B.evar ~loc (json_name n)) (List.map (desc env) args)
           else [%expr Wiretype.rec' [%e B.evar ~loc (lazy_name n)]]
       | Ptyp_constr ({ txt; _ }, args) -> (
@@ -228,7 +354,7 @@ let rec desc env (ct : core_type) =
           match args with
           | [] -> f
           | _ :: _ -> B.eapply ~loc f (List.map (desc env) args))
-      | Ptyp_var v -> B.evar ~loc (var_json v)
+      | Ptyp_var v -> B.evar ~loc (param_desc v)
       | Ptyp_tuple cts ->
           (* A JSON array of exactly its items, each by its own description,
              built as an object is: a function, and each item it takes. *)
@@ -253,8 +379,7 @@ let rec desc env (ct : core_type) =
                   [%e
                     B.pexp_fun ~loc Nolabel None pattern (B.evar ~loc (name i))]]
           in
-          List.fold_left
-            (fun acc e -> [%expr [%e acc] |> [%e e]])
+          List.fold_left (pipe ~loc)
             [%expr Wiretype.Tuple.map [%e build]]
             (List.mapi item cts @ [ [%expr Wiretype.Tuple.finish] ])
       | Ptyp_poly _ | Ptyp_arrow _ | Ptyp_object _ | Ptyp_class _ | Ptyp_alias _
@@ -276,7 +401,8 @@ and dict env (ct : core_type) bounds =
         (bounds @ [ (Nolabel, desc env k); (Nolabel, desc env v) ])
   | _ ->
       Location.raise_errorf ~loc
-        "wiretype: [@dict] describes a (key * value) list, and this is not one"
+        "wiretype: [@dict] describes a (key * value) list, and this is not \
+         one; drop [@dict], or describe it with [@with d]"
 
 let is_option (ct : core_type) =
   match ct.ptyp_desc with
@@ -356,7 +482,9 @@ let field_desc env ~target (ld : label_declaration) =
   let bounded f args = B.pexp_apply ~loc (B.evar ~loc f) (args @ unit_) in
   let refuse attributes what =
     Location.raise_errorf ~loc
-      "wiretype: %s bound %s, and this field is not one" attributes what
+      "wiretype: %s bound %s, and this field is not one; drop them, or \
+       describe it with [@with d]"
+      attributes what
   in
   let none = List.is_empty in
   let as_dict = Attribute.has_flag A.dict ld in
@@ -386,6 +514,10 @@ let field_desc env ~target (ld : label_declaration) =
           bounded "Wiretype.int_bounded" numeric
       | Some "int64", _ when none exclusive && none length && none items ->
           bounded "Wiretype.int64_bounded" numeric
+      | Some ("int" | "int64"), _ when not (none exclusive) ->
+          Location.raise_errorf ~loc
+            "wiretype: [@above] and [@below] bound a float; on an int, write \
+             [@min] or [@max] one past the bound"
       | Some "float", _ when none length && none items ->
           bounded "Wiretype.number_bounded" (numeric @ exclusive)
       | Some "string", _ when none numeric && none exclusive && none items ->
@@ -467,8 +599,6 @@ let refused_or ~loc f =
   | exception Location.Error err ->
       B.pexp_extension ~loc (Location.Error.to_extension err)
 
-let pipe ~loc acc e = [%expr [%e acc] |> [%e e]]
-
 (* An object from fields: [build] makes the value from them in order, and
    [project i f] is how the i-th, [f], is found in the value. *)
 let object_of env ~loc ~kind ~doc fs ~build ~project =
@@ -538,7 +668,9 @@ let tuple_pat ~loc names =
   | ns -> B.ppat_tuple ~loc (List.map (B.pvar ~loc) ns)
 
 type case = {
+  loc : location;  (** where its constructor is written *)
   word : string;
+  constant : bool;  (** whether it carries nothing, as an enum's word *)
   obj : expression;  (** the case's object *)
   dec : expression;  (** from its value to the variant *)
   pattern : pattern;  (** the variant's case, binding what [value] is made of *)
@@ -558,7 +690,9 @@ let variant_case env ~spelling ~tag (cd : constructor_declaration) =
   match cd.pcd_args with
   | Pcstr_tuple [] ->
       {
+        loc;
         word;
+        constant = true;
         obj = [%expr Wiretype.Object.finish (Wiretype.Object.map ())];
         dec = [%expr fun () -> [%e construct None]];
         pattern = pconstruct None;
@@ -566,7 +700,9 @@ let variant_case env ~spelling ~tag (cd : constructor_declaration) =
       }
   | Pcstr_tuple [ arg ] ->
       {
+        loc;
         word;
+        constant = false;
         obj = desc env arg;
         dec = [%expr fun v -> [%e construct (Some [%expr v])]];
         pattern = pconstruct (Some [%pat? v]);
@@ -620,7 +756,9 @@ let variant_case env ~spelling ~tag (cd : constructor_declaration) =
           Closed
       in
       {
+        loc;
         word;
+        constant = false;
         obj;
         dec =
           B.pexp_fun ~loc Nolabel None (tuple_pat ~loc names)
@@ -645,7 +783,9 @@ let poly_case env ~spelling (rf : row_field) =
       match args with
       | [] ->
           {
+            loc;
             word;
+            constant = true;
             obj = [%expr Wiretype.Object.finish (Wiretype.Object.map ())];
             dec = [%expr fun () -> [%e B.pexp_variant ~loc name None]];
             pattern = B.ppat_variant ~loc name None;
@@ -653,7 +793,9 @@ let poly_case env ~spelling (rf : row_field) =
           }
       | [ arg ] ->
           {
+            loc;
             word;
+            constant = false;
             obj = desc env arg;
             dec =
               [%expr fun v -> [%e B.pexp_variant ~loc name (Some [%expr v])]];
@@ -664,30 +806,34 @@ let poly_case env ~spelling (rf : row_field) =
           Location.raise_errorf ~loc
             "wiretype: `%s has several types; describe it with [@with d]" name)
 
-let constant cases =
-  List.for_all
-    (fun c ->
-      match c.value.pexp_desc with
-      | Pexp_construct ({ txt = Lident "()"; _ }, None) -> true
-      | _ -> false)
-    cases
+let no_union ~loc name =
+  Location.raise_errorf ~loc
+    "wiretype: %s names a union's tag, and %s is no union; drop it" "[@@tag]"
+    name
 
-let cases_desc ~loc ~kind ~doc ~tag cases =
+let cases_desc ~loc ~name ~kind ~doc ~tag cases =
   ignore
     (List.fold_left
        (fun words c ->
          if List.mem c.word words then
-           Location.raise_errorf ~loc
+           Location.raise_errorf ~loc:c.loc
              "wiretype: two constructors are written %S; name one with [@name]"
              c.word
          else c.word :: words)
        [] cases
       : string list);
+  let constant = List.for_all (fun c -> c.constant) cases in
+  let tag =
+    match (tag, constant) with
+    | Some _, true -> no_union ~loc name
+    | Some t, false -> t
+    | None, (true | false) -> "type"
+  in
   let kind_arg =
     Option.map (fun k -> labelled "kind" (B.estring ~loc k)) kind
   in
   let doc_arg = Option.map (fun d -> labelled "doc" (B.estring ~loc d)) doc in
-  if constant cases then
+  if constant then
     let word =
       B.pexp_function_cases ~loc
         (List.map
@@ -738,12 +884,13 @@ let cases_desc ~loc ~kind ~doc ~tag cases =
            [ kind_arg; doc_arg; Some (Nolabel, [%expr fun c -> c]) ])
     in
     let body =
-      [%expr
-        [%e map]
-        |> Wiretype.Object.case_mem [%e B.estring ~loc tag] Wiretype.string
-             ~enc:(fun c -> c)
-             ~enc_case:[%e enc_case] [%e makes]
-        |> Wiretype.Object.finish]
+      pipe ~loc
+        (pipe ~loc map
+           [%expr
+             Wiretype.Object.case_mem [%e B.estring ~loc tag] Wiretype.string
+               ~enc:(fun c -> c)
+               ~enc_case:[%e enc_case] [%e makes]])
+        [%expr Wiretype.Object.finish]
     in
     B.pexp_let ~loc Nonrecursive bindings body
 
@@ -757,6 +904,7 @@ let module_name code_path =
 
 let body env ~code_path (td : type_declaration) =
   let loc = td.ptype_loc in
+  check_declaration td;
   let spelling =
     match Attribute.get A.rename_all td with
     | Some s -> spelling_of ~loc s
@@ -770,23 +918,36 @@ let body env ~code_path (td : type_declaration) =
         Some (if String.equal name "t" then module_name code_path else name)
   in
   let doc = doc_of td.ptype_attributes in
-  let tag = Option.value (Attribute.get A.tag td) ~default:"type" in
+  let tag = Attribute.get A.tag td in
+  let not_cases () =
+    match tag with Some _ -> no_union ~loc name | None -> ()
+  in
   match (td.ptype_kind, td.ptype_manifest) with
-  | Ptype_record lds, _ -> record env ~loc ~kind ~doc ~spelling td lds
+  | Ptype_record lds, _ ->
+      not_cases ();
+      record env ~loc ~kind ~doc ~spelling td lds
   | Ptype_variant cds, _ ->
-      cases_desc ~loc ~kind ~doc ~tag
-        (List.map (variant_case env ~spelling ~tag) cds)
+      cases_desc ~loc ~name ~kind ~doc ~tag
+        (List.map
+           (variant_case env ~spelling ~tag:(Option.value tag ~default:"type"))
+           cds)
   | Ptype_abstract, Some { ptyp_desc = Ptyp_variant (rows, _, _); _ } ->
-      cases_desc ~loc ~kind ~doc ~tag (List.map (poly_case env ~spelling) rows)
-  | Ptype_abstract, Some manifest -> desc env manifest
+      cases_desc ~loc ~name ~kind ~doc ~tag
+        (List.map (poly_case env ~spelling) rows)
+  | Ptype_abstract, Some manifest ->
+      not_cases ();
+      desc env manifest
   | Ptype_abstract, None ->
       Location.raise_errorf ~loc
-        "wiretype: %s is abstract; there is nothing to describe" name
+        "wiretype: %s is abstract; there is nothing to describe: write its \
+         description by hand, as %s"
+        name (json_name name)
   | Ptype_open, _ ->
       Location.raise_errorf ~loc
-        "wiretype: an extensible type has no fixed shape"
+        "wiretype: an extensible type has no fixed shape; write its \
+         description by hand, as %s"
+        (json_name name)
 
-(* Whether a core type names one of [names]. *)
 let rec mentions names (ct : core_type) =
   match ct.ptyp_desc with
   | Ptyp_constr ({ txt = Lident n; _ }, args) ->
@@ -837,59 +998,62 @@ let str_type_decl ~ctxt (rec_flag, tds) =
     (match rec_flag with Recursive -> true | Nonrecursive -> false)
     && List.exists (decl_mentions group) tds
   in
-  let params =
-    List.exists (fun td -> not (List.is_empty td.ptype_params)) tds
+  let parameterised =
+    List.filter_map
+      (fun td ->
+        if List.is_empty td.ptype_params then None else Some td.ptype_name.txt)
+      tds
   in
-  let env = { group; recursive; params } in
+  let env = { group; recursive; parameterised } in
   let with_params td e =
     refused_or ~loc:td.ptype_loc (fun () ->
-        lambda ~loc (List.map var_json (param_names td)) (e ()))
+        lambda ~loc (List.map param_desc (param_names td)) (e ()))
   in
-  match (recursive, params) with
-  | false, _ ->
-      List.map
-        (fun td ->
-          [%stri
-            let [%p B.pvar ~loc (json_name td.ptype_name.txt)] =
-              [%e with_params td (fun () -> body env ~code_path td)]])
-        tds
-  | true, true ->
-      [
-        B.pstr_value ~loc Recursive
-          (List.map
-             (fun td ->
-               B.value_binding ~loc
-                 ~pat:(B.pvar ~loc (json_name td.ptype_name.txt))
-                 ~expr:
-                   (with_params td (fun () ->
-                        [%expr Wiretype.rec' (lazy [%e body env ~code_path td])])))
-             tds);
-      ]
-  | true, false ->
-      [
-        B.pstr_value ~loc Recursive
-          (List.map
-             (fun td ->
-               B.value_binding ~loc
-                 ~pat:(B.pvar ~loc (lazy_name td.ptype_name.txt))
-                 ~expr:
-                   [%expr
-                     lazy
-                       [%e
-                         refused_or ~loc:td.ptype_loc (fun () ->
-                             body env ~code_path td)]])
-             tds);
-        B.pstr_value ~loc Nonrecursive
-          (List.map
-             (fun td ->
-               B.value_binding ~loc
-                 ~pat:(B.pvar ~loc (json_name td.ptype_name.txt))
-                 ~expr:
-                   [%expr
-                     Wiretype.rec'
-                       [%e B.evar ~loc (lazy_name td.ptype_name.txt)]])
-             tds);
-      ]
+  let derived td = body env ~code_path td in
+  if not recursive then
+    List.map
+      (fun td ->
+        [%stri
+          let [%p B.pvar ~loc (json_name td.ptype_name.txt)] =
+            [%e with_params td (fun () -> derived td)]])
+      tds
+  else
+    (* One [let rec]: a type with parameters is a function, which may be
+       bound there, and one without is a lazy description, made a
+       description of itself once the group is bound. *)
+    let plain = List.filter (fun td -> List.is_empty td.ptype_params) tds in
+    B.pstr_value ~loc Recursive
+      (List.map
+         (fun td ->
+           if List.is_empty td.ptype_params then
+             B.value_binding ~loc
+               ~pat:(B.pvar ~loc (lazy_name td.ptype_name.txt))
+               ~expr:
+                 [%expr
+                   lazy [%e refused_or ~loc:td.ptype_loc (fun () -> derived td)]]
+           else
+             B.value_binding ~loc
+               ~pat:(B.pvar ~loc (json_name td.ptype_name.txt))
+               ~expr:
+                 (with_params td (fun () ->
+                      [%expr Wiretype.rec' (lazy [%e derived td])])))
+         tds)
+    ::
+    (match plain with
+    | [] -> []
+    | _ :: _ ->
+        [
+          B.pstr_value ~loc Nonrecursive
+            (List.map
+               (fun td ->
+                 B.value_binding ~loc
+                   ~pat:(B.pvar ~loc (json_name td.ptype_name.txt))
+                   ~expr:
+                     [%expr
+                       Wiretype.rec'
+                         [%e B.evar ~loc (lazy_name td.ptype_name.txt)]])
+               plain);
+        ])
 
 let sig_type_decl ~ctxt (_rec_flag, tds) =
   let loc = Expansion_context.Deriver.derived_item_loc ctxt in
@@ -919,35 +1083,34 @@ let sig_type_decl ~ctxt (_rec_flag, tds) =
 
 let () =
   let attributes =
-    Attribute.
-      [
-        T A.key;
-        T A.default;
-        T A.with_;
-        T A.min;
-        T A.max;
-        T A.above;
-        T A.below;
-        T A.multiple_of;
-        T A.min_length;
-        T A.max_length;
-        T A.min_items;
-        T A.max_items;
-        T A.min_properties;
-        T A.max_properties;
-        T A.dict;
-        T A.ct_dict;
-        T A.examples;
-        T A.read_only;
-        T A.write_only;
-        T A.deprecated;
-        T A.cd_name;
-        T A.rtag_name;
-        T A.tag;
-        T A.kind;
-        T A.rename_all;
-        T A.ct_with;
-      ]
+    [
+      Attribute.T A.key;
+      Attribute.T A.default;
+      Attribute.T A.with_;
+      Attribute.T A.min;
+      Attribute.T A.max;
+      Attribute.T A.above;
+      Attribute.T A.below;
+      Attribute.T A.multiple_of;
+      Attribute.T A.min_length;
+      Attribute.T A.max_length;
+      Attribute.T A.min_items;
+      Attribute.T A.max_items;
+      Attribute.T A.min_properties;
+      Attribute.T A.max_properties;
+      Attribute.T A.dict;
+      Attribute.T A.ct_dict;
+      Attribute.T A.examples;
+      Attribute.T A.read_only;
+      Attribute.T A.write_only;
+      Attribute.T A.deprecated;
+      Attribute.T A.cd_name;
+      Attribute.T A.rtag_name;
+      Attribute.T A.tag;
+      Attribute.T A.kind;
+      Attribute.T A.rename_all;
+      Attribute.T A.ct_with;
+    ]
   in
   ignore
     (Deriving.add "wiretype"

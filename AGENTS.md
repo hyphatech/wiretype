@@ -61,16 +61,21 @@ Each rule comes with why it exists and the test that catches a break.
   8259's to say. Why: a body a proxy and a server read as two different
   requests. Test: the parser's rows in `test_wiretype`, the two JSONTestSuite
   `y_` files with a repeated member among them.
-- **A kind accepts no string its zod check refuses.** Each ready-made kind
-  reads a subset of what the zod check its schema prints reads, so a
-  browser never turns away what the server would take. Why: a form that
-  will not send what the API would accept. Test: the same rows in
-  `test_wiretype`'s `kinds` and in `test/zod/kinds.test.ts`; a row changed
-  in one is changed in the other.
-- **A bound decides as its zod check does.** `multiple_of` on a number is
-  zod's `multipleOf`, rounding tolerance and all, so `19.99` is a multiple of
-  `0.01` on both sides. Why: a form that sends what the API then refuses.
-  Test: `multiple_rows` in `test_wiretype` and `multiples` in
+- **A kind accepts no string a check it prints refuses.** Each ready-made
+  kind reads a subset of what the check its schema prints reads -- zod's,
+  today -- so a browser never turns away what the server would take. Why:
+  a form that will not send what the API would accept. Test: the same rows
+  in `test_wiretype`'s `kinds` and in `test/zod/kinds.test.ts`; a row
+  changed in one is changed in the other.
+- **A bound is wiretype's to decide, and a printer says it exactly.**
+  `multiple_of` on a number is a whole quotient to within a few rounding
+  errors, so `19.99` is a multiple of `0.01`; on an integer it is exact.
+  zod's `multipleOf` decides the first alike and the second loosely, so an
+  integer's is printed as an exact `z.refine`; what a target cannot say
+  exactly is reported as loose. Why: zod is one target of many a
+  description is printed to, and a form must not send what the API then
+  refuses. Test: `multiple_rows` and `int_multiple_rows` in
+  `test_wiretype`, and `multiples` and `intMultiples` in
   `test/zod/kinds.test.ts`; a row changed in one is changed in the other.
 - **JSON Schema and zod are printed from one walk.** `Schema.walk` makes
   one intermediate schema and both printers read it, and what cannot be
@@ -84,9 +89,11 @@ Each rule comes with why it exists and the test that catches a break.
   descriptions are compiled outside the library; `test_ppx_wiretype`'s
   refusals.
 - **`invalid_arg` only where a description is built and can mean
-  nothing** -- a `multiple_of` that is not positive, two values with one
+  nothing** -- a bound that is no finite number, a `multiple_of` that is
+  not positive, two values with one
   word, a member described twice, two unions in one object, a case that is
-  not an object -- since a description is a constant written in source,
+  not an object, a member written by leaving it out that is read as
+  required -- since a description is a constant written in source,
   and the mistake is found when the program starts, never on a request.
   Each function's `.mli` says when it raises, and the deriver refuses at
   compile time each of these it can see in the type -- a name given twice,

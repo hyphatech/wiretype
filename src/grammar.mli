@@ -20,6 +20,7 @@ val duration_of_string : string -> (int, string) result
 val duration_to_string : int -> (string, string) result
 val duration_pattern : string
 val uuid_version_number : Shape.uuid_version -> int
+val uuid_pattern : Shape.uuid_version -> string
 
 val uuid_of_string :
   ?version:Shape.uuid_version -> string -> (string, string) result

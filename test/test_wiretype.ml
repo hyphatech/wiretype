@@ -98,9 +98,54 @@ let suite_rows () =
 
 (* A number that overflows is refused, not read as infinity. *)
 let overflow () =
-  match J.decode J.Value.json "1e400" with
-  | Error [ { code = P.Too_large; _ } ] -> ()
-  | Ok _ | Error _ -> Alcotest.fail "1e400 should be too large"
+  let code shape text =
+    match J.decode shape text with
+    | Ok _ -> []
+    | Error ps -> List.map (fun (p : P.t) -> P.code_to_string p.code) ps
+  in
+  List.iter
+    (fun (name, expected, found) ->
+      Alcotest.(check (list string)) name [ expected ] found)
+    [
+      ("any JSON past a double", "too_large", code J.Value.json "1e400");
+      ("an int past a double", "too_large", code J.int "1e400");
+      ("an int past a double below", "too_small", code J.int "-1e400");
+      ("with a fraction", "too_large", code J.int "1.0e400");
+      ("an int64 past a double", "too_large", code J.int64 "1e400");
+      ("an int64 past a double below", "too_small", code J.int64 "-1e400");
+    ]
+
+(* A path is one line however its names are spelt, and two paths are never
+   spelt alike: a name that is not plain is written quoted. *)
+let paths () =
+  List.iter
+    (fun (expected, at) ->
+      Alcotest.(check string) expected expected (P.path at))
+    [
+      ("items[2].count", [ P.Member "items"; Index 2; Member "count" ]);
+      ("scores.purple[name]", [ Member "scores"; Name "purple" ]);
+      ("größe", [ Member "größe" ]);
+      ({|["a.b"]|}, [ Member "a.b" ]);
+      ("a.b", [ Member "a"; Member "b" ]);
+      ({|[""].b|}, [ Member ""; Member "b" ]);
+      ({|["a\nb"]|}, [ Member "a\nb" ]);
+      ({|x["[0]"]|}, [ Member "x"; Member "[0]" ]);
+      ({|["a b"][name]|}, [ Name "a b" ]);
+      ("", []);
+    ];
+  Alcotest.(check string)
+    "from a root" "body[2]"
+    (P.path ~root:"body" [ Index 2 ]);
+  Alcotest.(check string)
+    "a member from a root" "body.a"
+    (P.path ~root:"body" [ Member "a" ]);
+  match J.decode J.Value.json {|{"a\nb": 1, "a\nb": 2}|} with
+  | Ok _ -> Alcotest.fail "a member given twice is refused"
+  | Error ps ->
+      Alcotest.(check string)
+        "one line for a log"
+        {|["a\nb"]: This member is given more than once. (repeated_member)|}
+        (P.list_to_string ps)
 
 (* ------------------------------------------------------------------ *)
 (* A description *)
@@ -268,6 +313,8 @@ let unknown () =
    are kinds.test.ts's, which runs zod's multipleOf over them. *)
 let multiple_rows =
   [
+    ("0", 0.01, true);
+    ("-19.99", 0.01, true);
     ("19.99", 0.01, true);
     ("0.3", 0.1, true);
     ("2.03", 0.07, true);
@@ -279,6 +326,18 @@ let multiple_rows =
     ("0.1", 0.3, false);
   ]
 
+(* A whole number, a step, and whether the one is a multiple of the other,
+   exactly: the rows of kinds.test.ts's check the schema prints for them. *)
+let int_multiple_rows =
+  [
+    ("0", 3, true);
+    ("-9", 3, true);
+    ("10", 3, false);
+    ("3000000000000000", 3, true);
+    ("3000000000000001", 3, false);
+    ("9007199254740991", 7, false);
+  ]
+
 let numbers () =
   List.iter
     (fun (text, step, expected) ->
@@ -287,6 +346,13 @@ let numbers () =
         expected
         (Result.is_ok (J.decode (J.number_bounded ~multiple_of:step ()) text)))
     multiple_rows;
+  List.iter
+    (fun (text, step, expected) ->
+      Alcotest.(check bool)
+        (Printf.sprintf "%s a multiple of %d" text step)
+        expected
+        (Result.is_ok (J.decode (J.int_bounded ~multiple_of:step ()) text)))
+    int_multiple_rows;
   let ok shape text = J.decode shape text in
   Alcotest.(check (result int reject))
     "an integer past 2^53, exactly" (Ok 9007199254740993)
@@ -354,7 +420,13 @@ let nesting () =
   Alcotest.(check (list problem))
     "513 are too deep"
     [ (String.concat "" (List.init 512 (fun _ -> "[0]")), "too_deep") ]
-    (problems (deep 513) J.Value.json)
+    (problems (deep 513) J.Value.json);
+  Alcotest.(check (list string))
+    "a limit given past the ceiling is the ceiling" [ "too_deep" ]
+    (match J.decode ~max_depth:max_int J.Value.json (deep 1_000_000) with
+    | Ok _ -> []
+    | Error ps ->
+        List.map (fun (p : J.Problem.t) -> J.Problem.code_to_string p.code) ps)
 
 type colour = Black | White
 
@@ -467,9 +539,115 @@ let unions () =
   Alcotest.(check (list problem))
     "a case that refuses a member it does not describe"
     [ ("z", "unknown_member") ]
-    (problems {|{"type":"note","data":1,"z":2}|} event)
+    (problems {|{"type":"note","data":1,"z":2}|} event);
+  Alcotest.(check (list problem))
+    "a case's member given twice"
+    [ ("data", "repeated_member") ]
+    (problems {|{"type":"note","data":1,"data":2}|} event);
+  Alcotest.(check (list problem))
+    "the tag given twice"
+    [ ("type", "repeated_member") ]
+    (problems {|{"type":"note","type":"note","data":1}|} event);
+  Alcotest.(check (list problem))
+    "the tag given twice, the second unlike the first"
+    [ ("type", "repeated_member") ]
+    (problems {|{"type":"note","data":1,"type":"x"}|} event);
+  (* Each member was said again with every problem before it, which took
+     40,000 members to 23 seconds. *)
+  let n = 50_000 in
+  let many =
+    {|{"type":"note","data":1|}
+    ^ String.concat "" (List.init n (fun _ -> {|,"z":1|}))
+    ^ "}"
+  in
+  let start = Sys.time () in
+  let found = List.length (problems many event) in
+  Alcotest.(check int) "every member nobody describes" n found;
+  Alcotest.(check bool) "read in linear time" true (Sys.time () -. start < 1.)
 
 (* A description that can mean nothing is refused where it is built. *)
+(* A value read and written through any JSON, a tuple of four, an object
+   that is only written, and the small pieces a caller writing JSON by hand
+   reaches for. *)
+let values () =
+  let m = { x = 1; y = 2; note = None; tags = [ "a" ] } in
+  (match J.to_value move m with
+  | Error e -> Alcotest.fail (J.Unwritable.to_string e)
+  | Ok v -> (
+      Alcotest.(check string)
+        "as the JSON it is written as" {|{"x":1,"y":2,"tags":["a"]}|}
+        (V.to_string v);
+      Alcotest.(check (option string))
+        "a member found" (Some {|["a"]|})
+        (Option.map V.to_string (V.find "tags" v));
+      Alcotest.(check (option string))
+        "and one that is not there" None
+        (Option.map V.to_string (V.find "note" v));
+      match J.of_value move v with
+      | Ok back -> Alcotest.(check int) "and read back" 2 back.y
+      | Error ps -> Alcotest.fail (P.list_to_string ps)));
+  Alcotest.(check (list problem))
+    "read from a value, every problem"
+    [ ("x", "too_large") ]
+    (match
+       J.of_value move (V.Object [ ("x", V.Number 19.); ("y", V.Number 0.) ])
+     with
+    | Ok _ -> []
+    | Error ps ->
+        List.map (fun (p : P.t) -> (P.path p.at, P.code_to_string p.code)) ps);
+  let four = J.tuple4 J.int J.string J.bool J.number in
+  Alcotest.(check (result string string))
+    "a tuple of four" (Ok {|[1,"a",true,2.5]|})
+    (written four (1, "a", true, 2.5));
+  Alcotest.(check (list problem))
+    "of another length"
+    [ ("", "too_few") ]
+    (problems {|[1,"a",true]|} four);
+  let sent = J.Object.(enc_only () |> mem "a" J.int ~enc:Fun.id |> finish) in
+  Alcotest.(check (result string string))
+    "an object only written" (Ok {|{"a":1}|}) (written sent 1);
+  Alcotest.(check (list problem))
+    "and never read"
+    [ ("", "malformed") ]
+    (problems {|{"a":1}|} sent);
+  Alcotest.(check string)
+    "text quoted as a document has it" {|"a\u0001\"b\u007F"|}
+    (J.Text.quote "a\x01\"b\x7f");
+  Alcotest.(check (list problem))
+    "a limit of none"
+    [ ("", "too_deep") ]
+    (match J.decode ~max_depth:0 J.Value.json "[]" with
+    | Ok _ -> []
+    | Error ps ->
+        List.map (fun (p : P.t) -> (P.path p.at, P.code_to_string p.code)) ps);
+  Alcotest.(check bool)
+    "but a scalar" true
+    (Result.is_ok (J.decode ~max_depth:0 J.Value.json "1"));
+  Alcotest.(check bool)
+    "a limit of two" true
+    (Result.is_ok (J.decode ~max_depth:2 J.Value.json "[[]]")
+    && Result.is_error (J.decode ~max_depth:2 J.Value.json "[[[]]]"))
+
+type nest = Nest of nest list
+
+let names () =
+  let rec nest =
+    lazy
+      (J.map
+         ~dec:(fun l -> Nest l)
+         ~enc:(fun (Nest l) -> l)
+         (J.list (J.rec' nest)))
+  in
+  List.iter
+    (fun (expected, name) -> Alcotest.(check string) expected expected name)
+    [
+      ("integer", J.name J.int);
+      ("list of string or null", J.name (J.list (J.nullable J.string)));
+      ("map of uuid", J.name (J.dict J.string (J.uuid ())));
+      ("colour", J.name colour);
+      ("list of itself", J.name (J.rec' nest));
+    ]
+
 let malformed_descriptions () =
   let refused name message f =
     Alcotest.check_raises name (Invalid_argument message) (fun () ->
@@ -488,6 +666,12 @@ let malformed_descriptions () =
   refused "a multiple that is not a number"
     "Wiretype.number_bounded: multiple_of is nan, and must be positive"
     (fun () -> J.number_bounded ~multiple_of:Float.nan ());
+  refused "a bound that is no finite number"
+    "Wiretype.number_bounded: max is inf, and must be a finite number"
+    (fun () -> J.number_bounded ~max:Float.infinity ());
+  refused "nor a bound that is no number"
+    "Wiretype.number_bounded: above is nan, and must be a finite number"
+    (fun () -> J.number_bounded ~above:Float.nan ());
   refused "two values, one word" "Wiretype.enum: two values are written \"a\""
     (fun () -> J.enum (fun _ -> "a") [ 1; 2 ]);
   refused "a member described twice"
@@ -549,7 +733,50 @@ let malformed_descriptions () =
         ~dec:Fun.id);
   refused "a case that is no object"
     "Wiretype.Object.Case.map: a case is an object" (fun () ->
-      J.Object.Case.map "a" J.int ~dec:Fun.id)
+      J.Object.Case.map "a" J.int ~dec:Fun.id);
+  refused "a case that is the union it is a case of"
+    "Wiretype.Object.Case.map: a case is an object" (fun () ->
+      let rec u =
+        lazy
+          (obj ()
+          |> J.Object.case_mem "t" J.string ~enc:Fun.id
+               ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
+               [
+                 J.Object.Case.make
+                   (J.Object.Case.map "b" (J.rec' u) ~dec:Fun.id);
+               ]
+          |> J.Object.finish)
+      in
+      Lazy.force u);
+  refused "a tag that cannot be written"
+    "Wiretype.Object.finish: a tag of the union \"t\": This value is read and \
+     never written." (fun () ->
+      obj ()
+      |> J.Object.case_mem "t"
+           (J.map ~dec:Fun.id J.string)
+           ~enc:Fun.id
+           ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
+           [ J.Object.Case.make (case "a") ]
+      |> J.Object.finish);
+  refused "a member left out that is read as required"
+    "Wiretype.Object.finish: the member \"a\" is left out by omit and has no \
+     absent to be read as" (fun () ->
+      obj () |> J.Object.mem "a" J.int ~omit:(Int.equal 0) |> J.Object.finish);
+  refused "a tag left out that is read as required"
+    "Wiretype.Object.finish: the member \"t\" is left out by omit and has no \
+     absent to be read as" (fun () ->
+      obj ()
+      |> J.Object.case_mem "t" J.string ~omit:(String.equal "a") ~enc:Fun.id
+           ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
+           [ J.Object.Case.make (case "a") ]
+      |> J.Object.finish);
+  Alcotest.(check (result string string))
+    "but one that is never read may leave out what it likes" (Ok "{}")
+    (written
+       (J.Object.enc_only ()
+       |> J.Object.mem "a" J.int ~enc:Fun.id ~omit:(Int.equal 0)
+       |> J.Object.finish)
+       0)
 
 (* ------------------------------------------------------------------ *)
 (* The ready-made kinds *)
@@ -698,6 +925,16 @@ let uri_rows =
     ("https://xn--zz.com/", false, false);
     ("https://xn--abc-.com/", false, false);
     ("https://xn--xn--a--gua.pt/", false, false);
+    ("file:///etc/hosts", true, true);
+    ("file://host/x", true, true);
+    ("file://host:80/x", false, false);
+    ("file://u@host/x", false, false);
+    ("file://1.2.3.999/", false, false);
+    ("foo://", true, true);
+    ("foo://:80", false, false);
+    ("foo://u@", false, false);
+    ("foo://u@:1", false, false);
+    ("http://[1.2.3.4::]/", false, false);
   ]
 
 let ipv4_rows =
@@ -729,7 +966,22 @@ let ipv6_rows =
     ("fe80::1%eth0", false, false);
     ("12345::", false, false);
     ("1:2:3:4:5:6:7", false, false);
+    ("1.2.3.4::", false, false);
+    ("1.2.3.4::1", false, false);
+    ("1:1.2.3.4::", false, false);
+    ("1:2:3:4:5:6:1.2.3.4", true, true);
+    ("1:2:3:4:5:6:7:1.2.3.4", false, false);
   ]
+
+(* A label is decoded in time that grows with the square of its length, so
+   one longer than DNS allows, 63 octets, is refused before it is decoded. *)
+let long_label () =
+  let start = Sys.time () in
+  let uri = "https://xn--" ^ String.make 20_000 'a' ^ ".com/" in
+  Alcotest.(check bool)
+    "refused" false
+    (Result.is_ok (J.decode J.uri (V.to_string (V.String uri))));
+  Alcotest.(check bool) "at once" true (Sys.time () -. start < 0.05)
 
 let kind_rows name shape rows () =
   List.iter
@@ -838,14 +1090,12 @@ let spellings () =
     (written J.duration (-1))
 
 (* Whether [s] holds [sub]: what the schema rows look for in a document. *)
-module Astring_contains = struct
-  let contains s sub =
-    let n = String.length s and m = String.length sub in
-    let rec at i =
-      i + m <= n && (String.equal (String.sub s i m) sub || at (i + 1))
-    in
-    at 0
-end
+let contains s sub =
+  let n = String.length s and m = String.length sub in
+  let rec at i =
+    i + m <= n && (String.equal (String.sub s i m) sub || at (i + 1))
+  in
+  at 0
 
 (* ------------------------------------------------------------------ *)
 (* Derived *)
@@ -875,6 +1125,85 @@ type tree = { label : string; children : tree list [@default []] }
 
 type 'a boxed = { inside : 'a; count : int }
 [@@rename_all camel] [@@deriving wiretype]
+
+(* A union of expressions, each through the other: a group with no
+   parameters whose types refer to each other. *)
+type expr = Num of { n : int } | Add of operands
+and operands = { l : expr; r : expr } [@@deriving wiretype]
+
+(* What the attributes a derived record may carry write. *)
+type hue = Red | Dark_blue
+[@@rename_all kebab] [@@kind "hue"] [@@deriving wiretype]
+
+type login = {
+  user : string;
+  password : string; [@write_only]
+  id : int64; [@min 1L] [@max 10L]
+  shout : string; [@with J.map ~dec:String.uppercase_ascii ~enc:Fun.id J.string]
+  tags : (string[@with J.string_bounded ~max_length:3 ()]) list;
+}
+[@@deriving wiretype]
+
+let derived_attributes () =
+  Alcotest.(check (result string string))
+    "a group of two, each through the other"
+    (Ok {|{"type":"add","l":{"type":"num","n":1},"r":{"type":"num","n":2}}|})
+    (written expr_json (Add { l = Num { n = 1 }; r = Num { n = 2 } }));
+  Alcotest.(check (result string string))
+    "kebab words" (Ok {|["red","dark-blue"]|})
+    (written (J.list hue_json) [ Red; Dark_blue ]);
+  Alcotest.(check string) "named by [@@kind]" "hue" (J.name hue_json);
+  Alcotest.(check (list problem))
+    "an int64's bounds, and an item's [@with]"
+    [ ("id", "too_large"); ("tags[0]", "too_long") ]
+    (problems
+       {|{"user":"a","password":"p","id":11,"shout":"x","tags":["long"]}|}
+       login_json);
+  match
+    J.decode login_json
+      {|{"user":"a","password":"p","id":2,"shout":"hey","tags":[]}|}
+  with
+  | Error ps -> Alcotest.failf "a login: %s" (P.list_to_string ps)
+  | Ok l ->
+      Alcotest.(check string) "a field's [@with]" "HEY" l.shout;
+      let ctx = J.Schema.create () in
+      let root = J.Schema.walk ctx J.Schema.Encode ~at:"login" login_json in
+      Alcotest.(check bool)
+        "a write-only member is in no answer" false
+        (contains
+           (J.Value.to_string
+              (J.Schema.Json_schema.document (J.Schema.components ctx) root))
+           "password")
+
+(* What a person might have in scope, and types the deriver once wrote code
+   for that did not compile: a pipe of the caller's own, a group mixing a
+   type with a parameter and one without, a parameter beside a type whose
+   name its argument took, and exclusive bounds. *)
+module Awkward = struct
+  let ( |> ) x _ = x
+
+  type 'a pair = { left : 'a; right : 'a }
+  and grid = { cells : int pair list } [@@deriving wiretype]
+
+  type a = { s : string } [@@deriving wiretype]
+  type 'a holder = { fixed : a; free : 'a } [@@deriving wiretype]
+  type ratio = { r : float [@above 0.] [@below 1.] } [@@deriving wiretype]
+end
+
+let derived_awkward () =
+  Alcotest.(check int)
+    "the pipe in scope is the caller's" 1 (Awkward.( |> ) 1 2);
+  Alcotest.(check (result string string))
+    "a group mixing parameters" (Ok {|{"cells":[{"left":1,"right":2}]}|})
+    (written Awkward.grid_json { cells = [ { left = 1; right = 2 } ] });
+  Alcotest.(check (result string string))
+    "a parameter beside a type of its name"
+    (Ok {|{"fixed":{"s":"x"},"free":3}|})
+    (written (Awkward.holder_json J.int) { fixed = { s = "x" }; free = 3 });
+  Alcotest.(check (list problem))
+    "exclusive bounds"
+    [ ("r", "too_large") ]
+    (problems {|{"r":1}|} Awkward.ratio_json)
 
 let derived () =
   let ok shape text =
@@ -922,9 +1251,7 @@ let derived_schema () =
     J.Value.to_string
       (J.Schema.Json_schema.document (J.Schema.components ctx) root)
   in
-  let has what =
-    Alcotest.(check bool) what true (Astring_contains.contains doc what)
-  in
+  let has what = Alcotest.(check bool) what true (contains doc what) in
   has {|"description":"A stone placed."|};
   has {|"description":"from the top"|};
   has {|"minimum":0,"maximum":18|};
@@ -932,7 +1259,7 @@ let derived_schema () =
   let zod = J.Schema.Zod.components (J.Schema.components ctx) in
   Alcotest.(check bool)
     "zod bounds" true
-    (Astring_contains.contains zod "z.int().check(z.gte(0), z.lte(18))");
+    (contains zod "z.int().check(z.gte(0), z.lte(18))");
   let ctx = J.Schema.create () in
   let side = J.Schema.walk ctx J.Schema.Encode ~at:"side" side_json in
   Alcotest.(check string)
@@ -967,10 +1294,10 @@ let derived_options () =
   in
   Alcotest.(check bool)
     "an answer has it, with its example" true
-    (Astring_contains.contains (walk J.Schema.Encode) {|"examples":["ann"]|});
+    (contains (walk J.Schema.Encode) {|"examples":["ann"]|});
   Alcotest.(check bool)
     "a request has it not" false
-    (Astring_contains.contains (walk J.Schema.Decode) {|"nick"|});
+    (contains (walk J.Schema.Decode) {|"nick"|});
   Alcotest.(check (result string reject))
     "any JSON and an array, read and written"
     (Ok {|{"nick":"ann","extra":{"a":[1]},"scores":[1,2]}|})
@@ -1022,6 +1349,42 @@ let unwritable () =
   refused "a description made only to read"
     (J.list (J.map ~dec:Fun.id J.int))
     [ 1 ] "[0] read_only";
+  refused "a number that is no JSON number" J.number Float.nan " unspellable";
+  refused "nor an infinite one" (J.list J.number) [ Float.infinity ]
+    "[0] unspellable";
+  refused "a value an enum has no word for"
+    (J.enum string_of_int [ 1; 2 ])
+    3 " unspellable";
+  let case tag =
+    J.Object.Case.map tag (J.Object.map () |> J.Object.finish) ~dec:Fun.id
+  in
+  refused "a case the union does not have"
+    (J.Object.map Fun.id
+    |> J.Object.case_mem "t" J.string ~enc:Fun.id
+         ~enc_case:(fun () -> J.Object.Case.value (case "b") ())
+         [ J.Object.Case.make (case "a") ]
+    |> J.Object.finish)
+    () "t unspellable";
+  (* Built here directly, past what Object.finish checks. *)
+  let x : (int, int) J.Shape.mem =
+    {
+      name = "x";
+      doc = "";
+      shape = J.int;
+      absent = None;
+      omit = None;
+      get = Some Fun.id;
+      opt = false;
+      access = `Read_write;
+      deprecated = false;
+      examples = [];
+    }
+  in
+  refused "a member a description built by hand gives twice"
+    (J.Shape.Object
+       ( { kind = ""; doc = "" },
+         { unknown = Skip; fields = Mem (Mem (Build (fun a _ -> a), x), x) } ))
+    1 "x repeated_member";
   let rec deep n = if n = 0 then V.Null else V.Array [ deep (n - 1) ] in
   Alcotest.(check (result unit string))
     "nested as deep as a reader reads" (Ok ())
@@ -1344,12 +1707,17 @@ let std3_only unicode =
     cps
   && List.exists (fun c -> String.equal (status c) "disallowed_STD3_valid") cps
 
-let stricter unicode =
-  List.exists
-    (fun c ->
-      c = 0x200C || c = 0x200D
-      || List.exists (fun (lo, hi) -> c >= lo && c <= hi) (Lazy.force not_nfc))
-    (code_points unicode)
+(* Refused where a browser takes it: a joiner, a code point that may not be
+   in NFC, a label already in [xn--], and an A-label past DNS's 63 octets. *)
+let stricter unicode ascii_n =
+  List.exists (fun l -> String.length l > 63) (String.split_on_char '.' ascii_n)
+  || List.exists
+       (fun c ->
+         c = 0x200C || c = 0x200D
+         || List.exists
+              (fun (lo, hi) -> c >= lo && c <= hi)
+              (Lazy.force not_nfc))
+       (code_points unicode)
   || List.exists
        (fun l -> String.starts_with ~prefix:"xn--" l)
        (String.split_on_char '.' unicode)
@@ -1418,7 +1786,7 @@ let idna_rows () =
           else if
             (match errors with [] -> true | _ :: _ -> false)
             && ascii ascii_n && plain_host ascii_n
-            && not (stricter unicode)
+            && not (stricter unicode ascii_n)
           then begin
             incr taken;
             if not (takes ascii_n) then
@@ -1454,15 +1822,13 @@ let test_numbers_are_written_as_typed () =
   match
     written
       Wiretype.(list number)
-      [
-        0.1; 7.5; -0.76; 1.0; -0.; 0.1 +. 0.2; 1. /. 3.; 1e21; 5e-324; Float.nan;
-      ]
+      [ 0.1; 7.5; -0.76; 1.0; -0.; 0.1 +. 0.2; 1. /. 3.; 1e21; 5e-324 ]
   with
   | Error m -> Alcotest.fail m
   | Ok s ->
       Alcotest.(check string)
         "each read back as it was"
-        {|[0.1,7.5,-0.76,1,-0,0.30000000000000004,0.3333333333333333,1e+21,5e-324,null]|}
+        {|[0.1,7.5,-0.76,1,-0,0.30000000000000004,0.3333333333333333,1e+21,5e-324]|}
         s
 
 (* Every finite double reads back as itself. *)
@@ -1653,6 +2019,7 @@ let () =
         [
           Alcotest.test_case "JSONTestSuite" `Quick suite_rows;
           Alcotest.test_case "overflow" `Quick overflow;
+          Alcotest.test_case "paths" `Quick paths;
           Alcotest.test_case "strings" `Quick strings;
           Alcotest.test_case "nesting" `Quick nesting;
         ] );
@@ -1666,6 +2033,8 @@ let () =
           Alcotest.test_case "unions" `Quick unions;
           Alcotest.test_case "tuples" `Quick tuples;
           Alcotest.test_case "maps" `Quick dicts;
+          Alcotest.test_case "names" `Quick names;
+          Alcotest.test_case "values, tuples and the pieces" `Quick values;
           Alcotest.test_case "malformed descriptions" `Quick
             malformed_descriptions;
         ] );
@@ -1690,6 +2059,8 @@ let () =
           Alcotest.test_case "schema" `Quick derived_schema;
           Alcotest.test_case "options, any JSON and arrays" `Quick
             derived_options;
+          Alcotest.test_case "what once did not compile" `Quick derived_awkward;
+          Alcotest.test_case "attributes" `Quick derived_attributes;
         ] );
       ( "kinds",
         [
@@ -1711,6 +2082,7 @@ let () =
           Alcotest.test_case "ipv6" `Quick (kind_rows "ipv6" J.ipv6 ipv6_rows);
           Alcotest.test_case "an internationalised host, by IdnaTestV2" `Quick
             idna_rows;
+          Alcotest.test_case "a label longer than DNS allows" `Quick long_label;
           Alcotest.test_case "malformed" `Quick malformed;
           Alcotest.test_case "spellings" `Quick spellings;
         ]
