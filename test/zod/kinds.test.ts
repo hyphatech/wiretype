@@ -8,7 +8,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as z from "zod/mini";
 
-type Row = [text: string, server: boolean, browser: boolean];
+// A browser of null is the runtime's to decide: whether `new URL` refuses a
+// bad Punycode label depends on the IDNA its Node was built with.
+type Row = [text: string, server: boolean, browser: boolean | null];
 
 const duration =
   /^P(?:\d+W|(?=\d|T\d)(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:[.,]\d+)?S)?)?)$/;
@@ -163,9 +165,9 @@ const kinds: [string, z.ZodMiniType, Row[]][] = [
       ["https://xn--nxasmq6b.com/", true, true],
       ["https://xn--mnchen-3ya.de/", true, true],
       ["https://xn--ls8h.la/", true, true],
-      ["https://xn--zz.com/", false, false],
-      ["https://xn--abc-.com/", false, false],
-      ["https://xn--xn--a--gua.pt/", false, false],
+      ["https://xn--zz.com/", false, null],
+      ["https://xn--abc-.com/", false, null],
+      ["https://xn--xn--a--gua.pt/", false, null],
       ["file:///etc/hosts", true, true],
       ["file://host/x", true, true],
       ["file://host:80/x", false, false],
@@ -275,7 +277,7 @@ describe("the kinds, as zod reads them", () => {
     for (const [text, server, browser] of rows) {
       test(`${name} ${JSON.stringify(text)}: server ${server}, browser ${browser}`, () => {
         const read = schema.safeParse(text).success;
-        assert.equal(read, browser);
+        if (browser !== null) assert.equal(read, browser);
         // The rule itself: nothing the server takes is refused here.
         if (server) assert.equal(read, true);
       });

@@ -922,6 +922,8 @@ let uri_rows =
     ("https://xn--nxasmq6b.com/", true, true);
     ("https://xn--mnchen-3ya.de/", true, true);
     ("https://xn--ls8h.la/", true, true);
+    (* A browser's answer to these three is its runtime's IDNA to decide,
+       null in kinds.test.ts; the rule holds whichever it is. *)
     ("https://xn--zz.com/", false, false);
     ("https://xn--abc-.com/", false, false);
     ("https://xn--xn--a--gua.pt/", false, false);
