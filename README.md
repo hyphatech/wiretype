@@ -164,7 +164,8 @@ See [AGENTS.md](AGENTS.md).
 
 ## Licence
 
-MIT, copyright Hypha Technologies Ltd; see [LICENSE](LICENSE). The
-Unicode data in `src/unicode/` and `test/idna-test/` is Unicode's, and
-JSONTestSuite's cases in `test/json-test-suite/` are Nicolas Seriot's,
-each under the licence beside it.
+MIT, copyright Hypha Technologies Ltd. See [LICENSE](LICENSE).
+
+The Unicode data in `src/unicode/` and `test/idna-test/` is Unicode's,
+and JSONTestSuite's cases in `test/json-test-suite/` are Nicolas
+Seriot's, each under the licence beside it.
