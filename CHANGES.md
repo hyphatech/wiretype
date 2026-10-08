@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.2.0 (2026-10-08)
 
 - Breaking: text that is not JSON, or nested past the limit, is refused
   with that one problem alone. A plain object or list also reported the
