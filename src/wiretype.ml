@@ -375,9 +375,6 @@ module Object = struct
     in
     go [] [] fields
 
-  (* An object has one union, since the tag that chooses a case is read
-     before the members it decides, and every name is one member's: a
-     document could hold it only once. *)
   (* Whether the object is read: built by a function, not written alone. *)
   let rec read : type o f. (o, f) S.fields -> bool = function
     | S.Build _ -> true
@@ -413,6 +410,9 @@ module Object = struct
              "the member %S is left out by omit and has no absent to be read as"
              name
        | None -> ());
+    (* An object has one union, since the tag that chooses a case is read
+       before the members it decides, and every name is one member's: a
+       document could hold it only once. *)
     (match tags with
     | first :: second :: _ ->
         malformed "Object.finish"

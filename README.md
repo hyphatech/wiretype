@@ -55,6 +55,12 @@ walked as a request (`Decode`) it is `LineInput`, whose `note` may be
 ```ocaml
 let ctx = J.Schema.create ()
 let root = J.Schema.walk ctx Encode ~at:"line" line_json
+
+let () =
+  match J.Schema.errors ctx with
+  | [] -> ()
+  | e :: _ -> failwith (J.Schema.error_to_string e)
+
 let json_schema = J.Schema.Json_schema.document (J.Schema.components ctx) root
 let zod = J.Schema.Zod.components (J.Schema.components ctx)
 ```
@@ -131,6 +137,13 @@ the request's is then
 `<Name>Input`, whatever else is walked. An object that refuses members it
 does not describe says so in both. Bounds -- ranges, `multiple_of`,
 lengths, counts -- are in both.
+
+What a walk could not make right is in `Schema.errors` -- two different
+descriptions under one kind, a map keyed by what is no text -- and a
+schema printed in spite of one says something the description does not,
+so check it before printing. What a schema can say only loosely -- any
+JSON, an integer's bound past 2^53 -- is printed loosely and listed in
+`Schema.loose`.
 
 ## The deriver
 
