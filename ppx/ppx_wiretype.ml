@@ -414,6 +414,26 @@ let base_name (ct : core_type) =
   | Ptyp_constr ({ txt = Lident n; _ }, _) -> Some n
   | _ -> None
 
+(* Whether a case's one argument is a type that is visibly no object: one
+   named elsewhere may be, and is left to [Wiretype.Object.Case.map]. *)
+let no_object (ct : core_type) =
+  (not (Attribute.has_flag A.ct_dict ct))
+  && Option.is_none (Attribute.get A.ct_with ct)
+  &&
+  match ct.ptyp_desc with
+  | Ptyp_constr
+      ( {
+          txt =
+            Lident
+              ( "int" | "int64" | "float" | "string" | "bool" | "unit" | "list"
+              | "array" | "option" );
+          _;
+        },
+        _ )
+  | Ptyp_tuple _ ->
+      true
+  | _ -> false
+
 (* ------------------------------------------------------------------ *)
 (* A field: a record's, or an inline record's in a case *)
 
@@ -704,6 +724,11 @@ let variant_case env ~spelling ~tag (cd : constructor_declaration) =
         pattern = pconstruct None;
         value = [%expr ()];
       }
+  | Pcstr_tuple [ arg ] when no_object arg ->
+      Location.raise_errorf ~loc
+        "wiretype: %s's argument is no object, and a case is an object's \
+         members; give it a name in an inline record"
+        name
   | Pcstr_tuple [ arg ] ->
       {
         loc;
@@ -797,6 +822,11 @@ let poly_case env ~spelling (rf : row_field) =
             pattern = B.ppat_variant ~loc name None;
             value = [%expr ()];
           }
+      | [ arg ] when no_object arg ->
+          Location.raise_errorf ~loc
+            "wiretype: `%s's argument is no object, and a case is an object's \
+             members; give it a record type of its own"
+            name
       | [ arg ] ->
           {
             loc;

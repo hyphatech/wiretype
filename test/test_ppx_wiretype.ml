@@ -61,6 +61,22 @@ let () =
           Alcotest.test_case "several arguments" `Quick
             (refused "type t = A of int * string [@@deriving wiretype]"
                "give them names in an inline record");
+          Alcotest.test_case "a case that is no object" `Quick
+            (refused "type t = A of int | B [@@deriving wiretype]"
+               "A's argument is no object, and a case is an object's members; \
+                give it a name in an inline record");
+          Alcotest.test_case "a case that is a list, an option or a tuple"
+            `Quick (fun () ->
+              List.iter
+                (fun arg ->
+                  refused
+                    ("type t = A of " ^ arg ^ " [@@deriving wiretype]")
+                    "give it a name in an inline record" ())
+                [ "int list"; "string option"; "(int * int)"; "unit" ]);
+          Alcotest.test_case "a polymorphic tag that is no object" `Quick
+            (refused "type t = [ `A of string | `B ] [@@deriving wiretype]"
+               "`A's argument is no object, and a case is an object's members; \
+                give it a record type of its own");
           Alcotest.test_case "a bound on text" `Quick
             (refused "type t = { n : string [@min 1] } [@@deriving wiretype]"
                "bound an int, an int64 or a float");
@@ -201,6 +217,10 @@ let () =
                   "val json : 'a Wiretype.t -> 'a t Wiretype.t";
                   "val u_json : u Wiretype.t";
                 ]);
+          Alcotest.test_case "a case whose argument is a named type" `Quick
+            (accepted
+               "type 'a t = A of point | B of M.t | C of 'a [@@deriving \
+                wiretype]");
           Alcotest.test_case "a tuple" `Quick
             (accepted
                "type t = { p : int * string * float } [@@deriving wiretype]");

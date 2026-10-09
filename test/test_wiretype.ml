@@ -787,10 +787,12 @@ let malformed_descriptions () =
         |> J.Object.finish)
         ~dec:Fun.id);
   refused "a case that is no object"
-    "Wiretype.Object.Case.map: a case is an object" (fun () ->
-      J.Object.Case.map "a" J.int ~dec:Fun.id);
+    "Wiretype.Object.Case.map: a case is an object, and this one is described \
+     as list of integer; describe an object, as a constructor's inline record \
+     is" (fun () -> J.Object.Case.map "a" (J.list J.int) ~dec:Fun.id);
   refused "a case that is the union it is a case of"
-    "Wiretype.Object.Case.map: a case is an object" (fun () ->
+    "Wiretype.Object.Case.map: a case is an object, and this one is the union \
+     it is a case of" (fun () ->
       let rec u =
         lazy
           (obj ()

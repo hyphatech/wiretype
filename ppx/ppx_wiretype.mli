@@ -40,7 +40,9 @@
     say nothing; a short name that is none of these is left to another deriver.
 
     A function, an object type and a variant constructor with more than one
-    argument have no JSON shape here, and are refused where they are written,
-    with what to write instead: each refusal is an error at its place in the
-    derived code, so an editor shows every one in a file, and the rest of the
-    file is still derived. *)
+    argument have no JSON shape here, and neither has a case whose one argument
+    is a scalar, a list, an array, an option or a tuple, since a case is an
+    object's members. Each is refused where it is written, with what to write
+    instead -- an inline record, for a case: each refusal is an error at its
+    place in the derived code, so an editor shows every one in a file, and the
+    rest of the file is still derived. *)

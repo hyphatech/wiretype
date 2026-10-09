@@ -21,6 +21,12 @@
   value from `null` is `mem ~absent` over a `nullable`: `[@default e]` on
   an `option` field.
 
+- A derived variant whose one argument is no object -- `A of int`, a list,
+  an array, an option, a tuple -- is refused where it is written, saying to
+  give it a name in an inline record, where it compiled and raised when the
+  program started. `Object.Case.map`, refusing one, says what the
+  description is and to describe an object.
+
 ## 0.2.0 (2026-10-08)
 
 - Breaking: text that is not JSON, or nested past the limit, is refused

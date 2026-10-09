@@ -411,27 +411,37 @@ module Object = struct
   module Case = struct
     type ('c, 'k, 'tag) map = ('c, 'k, 'tag) S.case_map
 
-    (* The object a description is: one reached through [rec'] has been
-       made by now, unless it is the union this case is of, which is being
-       made, and no object. *)
-    let rec object_of : type k. k S.t -> (S.about * k S.obj) option = function
-      | S.Object (about, o) -> Some (about, o)
+    (* The object a description is, or what it is instead: one reached
+       through [rec'] has been made by now, unless it is the union this case
+       is of, which is being made, and no object. *)
+    let rec object_of : type k. k S.t -> (S.about * k S.obj, string) result =
+      let itself = "the union it is a case of" in
+      function
+      | S.Object (about, o) -> Ok (about, o)
       | S.Rec l -> (
           match Lazy.force l with
           | t -> object_of t
-          | exception Lazy.Undefined -> None)
-      | _ -> None
+          | exception Lazy.Undefined -> Error itself)
+      | t -> (
+          match name t with
+          | n ->
+              Error
+                ("described as " ^ n
+               ^ "; describe an object, as a constructor's inline record is")
+          | exception Lazy.Undefined -> Error itself)
 
     let map (type k) ?dec tag (obj : k S.t) : (_, k, _) map =
       match object_of obj with
-      | Some (case_about, o) -> (
+      | Ok (case_about, o) -> (
           match Encode.find_cases o.fields with
           | None -> { tag; case_about; obj = o; build = dec }
           | Some _ ->
               malformed "Object.Case.map"
                 "a case is an object with no union of its own, since an object \
                  has one")
-      | None -> malformed "Object.Case.map" "a case is an object"
+      | Error what ->
+          malformed "Object.Case.map" "a case is an object, and this one is %s"
+            what
 
     let make m = S.Case m
     let value m k = S.Case_value (m, k)

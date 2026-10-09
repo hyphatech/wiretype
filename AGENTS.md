@@ -98,8 +98,9 @@ Each rule comes with why it exists and the test that catches a break.
   starts, never on a request. Each function's `.mli` says when it raises,
   and the deriver refuses at compile time each of these it can see in the
   type -- a name given twice, two constructors written alike, an option of
-  an option -- leaving to the library only what it cannot: a case whose
-  one argument's type is no object.
+  an option, a case whose one argument is a scalar, a list, an option or a
+  tuple -- leaving to the library only what it cannot: a case whose one
+  argument is a type named elsewhere that is no object.
   Nothing else raises across the library's boundary. Test: `test_style`
   allows `invalid_arg` in `wiretype.ml` alone, and refuses any other;
   `test_wiretype`'s malformed descriptions; `test_ppx_wiretype`'s
