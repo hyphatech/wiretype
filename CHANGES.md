@@ -7,9 +7,10 @@
   below (`[0][0]...: This is nested more than 512 deep, 496 levels below
   here.`), as `decode`'s problem is, where its path went the whole way
   down, 512 segments and more.
-- The deriver refuses an `int32`, a `nativeint`, a `char` and `bytes`
-  where each is written, saying what to write instead, where the derived
-  code failed to compile on an unbound `int32_json`.
+- The deriver refuses an `int32`, a `nativeint`, a `char` and `bytes`,
+  or `Int32.t`, `Nativeint.t`, `Char.t` and `Bytes.t`, where each is
+  written, saying what to write instead, where the derived code failed
+  to compile on an unbound `int32_json` or `Int32.json`.
 - Breaking: `decode` lists at most a hundred problems, or as many as a new
   `?max_problems` says; past it, reading stops and the list ends with one
   problem of a new code, `too_many_problems` (`Problem.Too_many_problems`,

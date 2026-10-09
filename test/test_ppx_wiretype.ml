@@ -71,6 +71,11 @@ let () =
                   ("char", "char has no description; write string");
                   ("bytes", "bytes has no description; write string");
                   ("int32 list", "int32 has no description; write int");
+                  ("Int32.t", "int32 has no description; write int");
+                  ("Nativeint.t", "nativeint has no description; write int64");
+                  ("Char.t", "char has no description; write string");
+                  ("Bytes.t", "bytes has no description; write string");
+                  ("Char.t option", "char has no description; write string");
                 ]);
           Alcotest.test_case "several arguments" `Quick
             (refused "type t = A of int * string [@@deriving wiretype]"

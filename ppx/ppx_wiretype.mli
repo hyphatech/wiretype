@@ -31,8 +31,8 @@
     - An [int], [int64], [float], [string] and [bool] are their own
       descriptions, and [unit] is [null]; a [list] and an [array] are a JSON
       array, and an [option] is its type or [null]. An [int32], a [nativeint], a
-      [char] and [bytes] have no description, and are refused, saying what to
-      write instead.
+      [char] and [bytes] -- or [Int32.t], [Nativeint.t], [Char.t] and [Bytes.t]
+      -- have no description, and are refused, saying what to write instead.
     - A {b tuple} is a JSON array of exactly its items, each by its own
       description.
     - Any other type [M.t] is described by [M.json], and [u] by [u_json]: a
