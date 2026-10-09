@@ -1105,6 +1105,58 @@ let malformed () =
     [ ("", "malformed") ]
     (problems {|"2026-02-30"|} J.date)
 
+(* A kind of the application's own: an order's number, [ord-] and digits. *)
+let order_number_of s =
+  let n = String.length s in
+  let digits = if n > 4 then String.sub s 4 (n - 4) else "" in
+  if
+    String.starts_with ~prefix:"ord-" s
+    && (not (String.equal digits ""))
+    && String.for_all (function '0' .. '9' -> true | _ -> false) digits
+  then
+    Option.to_result ~none:"This order number is too long."
+      (int_of_string_opt digits)
+  else Error "An order number is ord- and digits."
+
+let order_number =
+  J.kind ~name:"order number" ~parse:order_number_of
+    ~print:(Printf.sprintf "ord-%d") J.string
+
+let own_kinds () =
+  Alcotest.(check (result int (list problem)))
+    "read by its parse" (Ok 42)
+    (Result.map_error (fun _ -> []) (J.decode order_number {|"ord-42"|}));
+  Alcotest.(check (list problem))
+    "its refusal is at its place"
+    [ ("[1]", "malformed") ]
+    (problems {|["ord-1", "ord-x"]|} (J.list order_number));
+  Alcotest.(check (list string))
+    "in parse's words"
+    [ "An order number is ord- and digits." ]
+    (match J.decode order_number {|"7"|} with
+    | Ok _ -> []
+    | Error ps -> List.map (fun (p : P.t) -> p.message) ps);
+  Alcotest.(check (list problem))
+    "and what is not even its description's is that description's problem"
+    [ ("", "unexpected_type") ]
+    (problems "7" order_number);
+  Alcotest.(check (result string string))
+    "written by its print" (Ok {|"ord-42"|}) (written order_number 42);
+  let code = function
+    | Ok s -> Ok s
+    | Error (e : J.Unwritable.t) -> Error (J.Unwritable.code_to_string e.code)
+  in
+  Alcotest.(check (result string string))
+    "and without print, only read" (Error "read_only")
+    (code
+       (J.encode
+          (J.kind ~name:"order number" ~parse:order_number_of J.string)
+          42));
+  Alcotest.(check (list string))
+    "named by its name"
+    [ "order number"; "list of order number" ]
+    [ J.name order_number; J.name (J.list order_number) ]
+
 (* Whatever value a kind can write, it reads back as itself. *)
 let round_trip name shape gen ~equal ~print =
   QCheck.Test.make ~count:2000 ~name:(name ^ " reads back what it writes")
@@ -2174,6 +2226,7 @@ let () =
             idna_rows;
           Alcotest.test_case "a label longer than DNS allows" `Quick long_label;
           Alcotest.test_case "malformed" `Quick malformed;
+          Alcotest.test_case "one's own" `Quick own_kinds;
           Alcotest.test_case "spellings" `Quick spellings;
         ]
         @ List.map QCheck_alcotest.to_alcotest kinds_round_trip );

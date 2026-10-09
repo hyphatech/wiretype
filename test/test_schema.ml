@@ -587,6 +587,26 @@ let test_each_is_said () =
       ("an ipv6", "z.ipv6()", zod Wiretype.ipv6);
     ]
 
+(* A kind of one's own is its description's schema, with the format it
+   names. *)
+let test_a_kind_of_ones_own_is_said () =
+  let printed description =
+    let _, root = walked description in
+    (V.to_string (S.Json_schema.of_t root), S.Zod.of_t root)
+  in
+  let day ?format () =
+    Wiretype.kind ~name:"day" ?format ~parse:Result.ok ~print:Fun.id
+      Wiretype.string
+  in
+  Alcotest.(check (pair string string))
+    "with a format"
+    ({|{"type":"string","format":"date"}|}, "z.iso.date()")
+    (printed (day ~format:Wiretype.Shape.Date ()));
+  Alcotest.(check (pair string string))
+    "without one"
+    ({|{"type":"string"}|}, "z.string()")
+    (printed (day ()))
+
 (* Two descriptions under one kind are compared whole, docs and all, since
    one would be printed for both. *)
 let test_a_kind_is_compared_whole () =
@@ -701,6 +721,8 @@ let () =
           Alcotest.test_case "what the reader means" `Quick
             test_what_the_reader_means;
           Alcotest.test_case "each is said" `Quick test_each_is_said;
+          Alcotest.test_case "a kind of one's own is said" `Quick
+            test_a_kind_of_ones_own_is_said;
           Alcotest.test_case "a kind is compared whole" `Quick
             test_a_kind_is_compared_whole;
           Alcotest.test_case "a component is walked once" `Quick
