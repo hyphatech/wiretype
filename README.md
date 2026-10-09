@@ -9,7 +9,7 @@ JSON contracts for OCaml.
 
 Describe a JSON shape once, or derive it from your type. That one value
 reads a document and reports every problem in it, writes a value, checks
-the bounds it states, and prints itself as JSON Schema 2020-12 and as zod,
+the bounds it states, and prints itself as JSON Schema 2020-12 and as Zod,
 so a server, a browser and a model's tool call read the same contract.
 Depends on nothing.
 
@@ -119,7 +119,7 @@ walk it too.
 
 ## Kinds
 
-Each is a plain OCaml type, with its schema's `format` and its zod check,
+Each is a plain OCaml type, with its schema's `format` and its Zod check,
 and accepts no string that check refuses.
 
 | Kind | OCaml | Reads |
@@ -143,8 +143,8 @@ the request's is then
 does not describe says so in both. Bounds -- ranges, `multiple_of`,
 lengths, counts -- are in both. So is a doc, wherever it is given -- an
 object, a member, an enum, a kind, a map, a union: JSON Schema's
-`description`, and zod's comment where a comment can stand. The zod it prints
-is checked in TypeScript, against zod itself, on every test run.
+`description`, and Zod's comment where a comment can stand. The Zod it prints
+is checked in TypeScript, against Zod itself, on every test run.
 
 What a walk could not make right is in `Schema.errors` -- two different
 descriptions under one kind, a map keyed by what is no text -- and a

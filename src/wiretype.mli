@@ -33,7 +33,7 @@
     back as itself.
 
     {b What a description is} is {!Shape}, public and walked by the decoder, the
-    encoder and {!Schema}, which prints JSON Schema and zod from it.
+    encoder and {!Schema}, which prints JSON Schema and Zod from it.
 
     {b A description that can mean nothing} -- such as a bound no number meets,
     a [multiple_of] that is not positive, two values written as one word, a
@@ -110,7 +110,7 @@ val int : int t
     exponent -- [2.0], [1e3] -- is read where its digits are whole, as JSON
     Schema's [integer] is, so [1.0000000000000000001] is a fraction, and only
     below 2{^ 53}, from which a double cannot tell which whole number it is. A
-    JavaScript client holds an integer exactly only up to 2{^ 53}, and zod's
+    JavaScript client holds an integer exactly only up to 2{^ 53}, and Zod's
     [z.int()] refuses one past it: an id that may be larger travels as text,
     through {!kind}. *)
 
@@ -121,7 +121,7 @@ val int_bounded : ?min:int -> ?max:int -> ?multiple_of:int -> unit -> int t
 
 val int64 : int64 t
 (** As {!int}, to 2{^ 63}: past 2{^ 53}, a JavaScript client can neither hold it
-    exactly nor pass zod's check. *)
+    exactly nor pass Zod's check. *)
 
 val int64_bounded :
   ?min:int64 -> ?max:int64 -> ?multiple_of:int64 -> unit -> int64 t
@@ -164,7 +164,7 @@ val enum : ?kind:string -> ?doc:string -> ('a -> string) -> 'a list -> 'a t
 (** {1 Ready-made kinds}
 
     Each over a plain OCaml type, so no library's type is in an application's
-    API; each with its schema's [format] and its zod check, and accepting no
+    API; each with its schema's [format] and its Zod check, and accepting no
     string that check refuses. What each is, its [format] says, so a schema
     prints no [description] of the library's for it: a doc is its user's, a
     member's or one {!map} gives around the kind. *)
@@ -189,7 +189,7 @@ val duration : int t
 val uuid : ?version:Shape.uuid_version -> unit -> string t
 (** A UUID, as RFC 9562 writes one, lower-cased: versions 1 to 8, with the nil
     and the max UUID, or the one version asked for. The max UUID is read in
-    lower case alone, as zod reads it. *)
+    lower case alone, as Zod reads it. *)
 
 val base64 : string t
 (** Bytes, as RFC 4648 §4's padded base64. *)

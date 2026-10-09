@@ -38,7 +38,7 @@
   text in another order than it has.
 - Breaking: the doc of an enum, a kind, a map, a value of several sorts
   (`any`) and a union is in the schema, as an object's and a member's
-  were: JSON Schema's `description` on its subschema, and zod's comment
+  were: JSON Schema's `description` on its subschema, and Zod's comment
   on the declaration or member it stands for. A derived enum's or
   union's doc comment is so too. `Schema.t` has a new constructor,
   `Described`, which wraps a shape with its doc; a match on `Schema.t`

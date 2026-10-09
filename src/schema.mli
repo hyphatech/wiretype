@@ -1,5 +1,5 @@
 (** Descriptions as schemas: one walk over a description, printed as JSON Schema
-    2020-12 and as zod, so the two cannot disagree. It knows no HTTP: a web
+    2020-12 and as Zod, so the two cannot disagree. It knows no HTTP: a web
     framework's document is built from it, and so can anybody's.
 
     A description is walked in a {!dir}ection: what a request's body reads
@@ -57,7 +57,7 @@ type t =
       (** a shape with the doc it was given, where nothing else holds it -- an
           enum's, a kind's, a map's, a value of several sorts', a union's. JSON
           Schema says it as the subschema's [description], over any the schema
-          has of its own; zod as the comment on the declaration or the member it
+          has of its own; Zod as the comment on the declaration or the member it
           stands for, an item's being JSON Schema's alone. A member's own doc
           wins over it on the member's property. *)
 
@@ -135,7 +135,7 @@ module Json_schema : sig
   (** A whole schema: the root, with its components under [$defs]. *)
 end
 
-(** zod, as TypeScript: the [zod/mini] module's functions, which tree-shake. *)
+(** Zod, as TypeScript: the [zod/mini] module's functions, which tree-shake. *)
 module Zod : sig
   val of_t : ?indent:string -> t -> string
 

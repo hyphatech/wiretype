@@ -1,7 +1,7 @@
 # AGENTS.md
 
 wiretype describes a JSON shape once: it reads a document with every
-problem found, writes a value, and prints itself as JSON Schema and zod.
+problem found, writes a value, and prints itself as JSON Schema and Zod.
 `ppx_wiretype` derives a description from a type. This file is for anyone
 changing it, human or agent. Users start at [README.md](README.md).
 
@@ -14,7 +14,7 @@ make lint    # formatting, odoc, and the release build
 make fmt     # format in place
 ```
 
-The zod rows need Node 24 or later; `make test-zod` runs them alone. CI
+The Zod rows need Node 24 or later; `make test-zod` runs them alone. CI
 runs `make lint` and `make test` on OCaml 5.5.
 
 ## Layout
@@ -62,7 +62,7 @@ Each rule comes with why it exists and the test that catches a break.
   requests. Test: the parser's rows in `test_wiretype`, the two JSONTestSuite
   `y_` files with a repeated member among them.
 - **A kind accepts no string a check it prints refuses.** Each ready-made
-  kind reads a subset of what the check its schema prints reads -- zod's,
+  kind reads a subset of what the check its schema prints reads -- Zod's,
   today -- so a browser never turns away what the server would take. Why:
   a form that will not send what the API would accept. Test: the same rows
   in `test_wiretype`'s `kinds` and in `test/zod/kinds.test.ts`; a row
@@ -70,14 +70,14 @@ Each rule comes with why it exists and the test that catches a break.
 - **A bound is wiretype's to decide, and a printer says it exactly.**
   `multiple_of` on a number is a whole quotient to within a few rounding
   errors, so `19.99` is a multiple of `0.01`; on an integer it is exact.
-  zod's `multipleOf` decides the first alike and the second loosely, so an
+  Zod's `multipleOf` decides the first alike and the second loosely, so an
   integer's is printed as an exact `z.refine`; what a target cannot say
-  exactly is reported as loose. Why: zod is one target of many a
+  exactly is reported as loose. Why: Zod is one target of many a
   description is printed to, and a form must not send what the API then
   refuses. Test: `multiple_rows` and `int_multiple_rows` in
   `test_wiretype`, and `multiples` and `intMultiples` in
   `test/zod/kinds.test.ts`; a row changed in one is changed in the other.
-- **JSON Schema and zod are printed from one walk.** `Schema.walk` makes
+- **JSON Schema and Zod are printed from one walk.** `Schema.walk` makes
   one intermediate schema and both printers read it, and what cannot be
   said exactly -- any JSON -- is reported as loose, never guessed at. Why:
   two walks are two contracts that drift. Test: `test_schema`.
