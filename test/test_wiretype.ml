@@ -589,10 +589,43 @@ let nesting () =
   Alcotest.(check bool)
     "512 levels" true
     (Result.is_ok (J.decode J.Value.json (deep 512)));
-  Alcotest.(check (list problem))
-    "513 are too deep"
-    [ (String.concat "" (List.init 512 (fun _ -> "[0]")), "too_deep") ]
-    (problems (deep 513) J.Value.json);
+  let said ?max_depth text =
+    Result.map ignore
+      (Result.map_error (List.map P.to_string)
+         (J.decode ?max_depth J.Value.json text))
+  in
+  let first n = String.concat "" (List.init n (fun _ -> "[0]")) in
+  (* A log keeps the place a document went deep, never the whole way down. *)
+  Alcotest.(check (result unit (list string)))
+    "513 are too deep, said where they start"
+    (Error
+       [
+         first 16
+         ^ ": This is nested more than 512 deep, 496 levels below here. \
+            (too_deep)";
+       ])
+    (said (deep 513));
+  Alcotest.(check (result unit (list string)))
+    "at the ceiling, the same"
+    (Error
+       [
+         first 16
+         ^ ": This is nested more than 10000 deep, 9984 levels below here. \
+            (too_deep)";
+       ])
+    (said ~max_depth:max_int (deep 10_001));
+  Alcotest.(check (result unit (list string)))
+    "a path as short as that is whole"
+    (Error [ first 16 ^ ": This is nested more than 16 deep. (too_deep)" ])
+    (said ~max_depth:16 (deep 17));
+  Alcotest.(check (result unit (list string)))
+    "and one longer is not"
+    (Error
+       [
+         first 16
+         ^ ": This is nested more than 17 deep, 1 level below here. (too_deep)";
+       ])
+    (said ~max_depth:17 (deep 18));
   Alcotest.(check (list string))
     "a limit given past the ceiling is the ceiling" [ "too_deep" ]
     (match J.decode ~max_depth:max_int J.Value.json (deep 1_000_000) with

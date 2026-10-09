@@ -10,7 +10,10 @@ type segment =
 
 type code =
   | Syntax  (** not JSON: reported alone *)
-  | Too_deep  (** nested past the limit: reported alone *)
+  | Too_deep
+      (** nested past the limit: reported alone, at the first 16 segments of its
+          path, a place the document has, where a deeper path would be a line no
+          log keeps; its sentence says how many levels below *)
   | Required  (** a member that must be there is not *)
   | Unexpected_type  (** a value of another sort: a string for a number *)
   | Too_small  (** below its minimum, or its type's *)

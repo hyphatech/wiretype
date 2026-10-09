@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Breaking: a `too_deep` problem is at no more than the first 16 segments
+  of its path, its sentence saying how many levels below
+  (`[0][0]...: This is nested more than 512 deep, 496 levels below
+  here.`), where its path went the whole way down: 1.5 KB at the default
+  limit, and 30 KB at 10,000.
 - `decode ~max_depth` below 0 is 0, as one past 10,000 is 10,000: a
   scalar alone is read, and the problem says it is nested more than 0
   deep, where it said more than a negative number.
