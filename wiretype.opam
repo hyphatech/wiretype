@@ -11,7 +11,7 @@ homepage: "https://github.com/hyphatech/wiretype"
 bug-reports: "https://github.com/hyphatech/wiretype/issues"
 depends: [
   "dune" {>= "3.18"}
-  "ocaml" {>= "5.4"}
+  "ocaml" {>= "5.5"}
   "alcotest" {with-test & >= "1.9.1"}
   "odoc" {with-dev-setup & >= "3.2.1"}
   "merlin" {with-dev-setup & >= "5.6-504"}

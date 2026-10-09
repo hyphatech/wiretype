@@ -15,7 +15,7 @@ make fmt     # format in place
 ```
 
 The zod rows need Node 24 or later; `make test-zod` runs them alone. CI
-runs `make lint` and `make test` on OCaml 5.4 and 5.5.
+runs `make lint` and `make test` on OCaml 5.5.
 
 ## Layout
 

@@ -10,7 +10,7 @@ homepage: "https://github.com/hyphatech/wiretype"
 bug-reports: "https://github.com/hyphatech/wiretype/issues"
 depends: [
   "dune" {>= "3.18"}
-  "ocaml" {>= "5.4"}
+  "ocaml" {>= "5.5"}
   "wiretype" {= version}
   "ppxlib" {>= "0.38.0"}
   "yojson" {with-test & >= "3.0.0"}

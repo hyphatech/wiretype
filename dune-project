@@ -22,7 +22,7 @@
   "One value describes a JSON shape: it reads a document in one pass with every problem found, writes a value, checks the bounds it states, and prints itself as JSON Schema 2020-12 and as zod, so a server, a browser and a model read one contract. Depends on nothing.")
  (depends
   (ocaml
-   (>= 5.4))
+   (>= 5.5))
   (alcotest
    (and
     :with-test
@@ -51,7 +51,7 @@
   "Writes a type's description from records, enums, tagged unions, polymorphic variants, type parameters and recursive types, with bounds, defaults, docs and examples as attributes. What it writes is wiretype's public combinators.")
  (depends
   (ocaml
-   (>= 5.4))
+   (>= 5.5))
   (wiretype
    (= :version))
   (ppxlib
