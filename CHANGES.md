@@ -70,11 +70,11 @@
   `string_bounded`, `list` and `dict`, or a negative length or count --
   where it was taken and every document then refused. The deriver refuses
   such a pair written as literals (`[@min 5] [@max 3]`).
-- A derived variant whose one argument is no object -- `A of int`, a list,
-  an array, an option, a tuple -- is refused where it is written, saying to
-  give it a name in an inline record, where it compiled and raised when the
-  program started. `Object.Case.map`, refusing one, says what the
-  description is and to describe an object.
+- Breaking: a derived variant whose one argument is no object -- `A of int`,
+  a list, an array, an option, a tuple -- is refused where it is written,
+  saying to give it a name in an inline record, where it compiled and
+  raised when the program started. `Object.Case.map`, refusing one, says
+  what the description is and to describe an object.
 
 ## 0.2.0 (2026-10-08)
 
