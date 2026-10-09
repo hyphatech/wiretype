@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The deriver reads a type written by its stdlib module's name -- `String.t`,
+  `'a List.t`, `Stdlib.Int64.t` -- as its short name, bounds and an
+  option's member alike, where the derived code failed to compile on an
+  unbound `String.json`; `Stdlib.Int32.t` and its kin are refused as
+  `int32` is. A module of the user's own named `String` is read as the
+  stdlib's: describe its type with `[@with String.json]`.
 - Breaking: a value `encode` refuses as `too_deep` is at no more than the
   first 16 segments of its path, its sentence saying how many levels
   below (`[0][0]...: This is nested more than 512 deep, 496 levels below

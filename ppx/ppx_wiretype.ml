@@ -319,13 +319,50 @@ type env = {
    bound to something else where it is derived. *)
 let pipe ~loc acc e = B.pexp_apply ~loc e [ (Nolabel, acc) ]
 
+(* The stdlib's modules whose [t] is a type of the compiler's own, by the
+   short name it has: [String.t], or [Stdlib.String.t], is a [string]. A
+   module of one of these names declared here is not told from the stdlib's,
+   since the deriver reads no more than the type as it is written. *)
+let stdlib_modules =
+  [
+    ("Int", "int");
+    ("Int64", "int64");
+    ("Float", "float");
+    ("String", "string");
+    ("Bool", "bool");
+    ("Unit", "unit");
+    ("List", "list");
+    ("Array", "array");
+    ("Option", "option");
+    ("Int32", "int32");
+    ("Nativeint", "nativeint");
+    ("Char", "char");
+    ("Bytes", "bytes");
+  ]
+
+(* A type written by its stdlib module's name, as the short name it has, so
+   it is read the same however it is spelt. *)
+let short (ct : core_type) =
+  match ct.ptyp_desc with
+  | Ptyp_constr
+      ( {
+          txt = Ldot (Lident m, "t") | Ldot (Ldot (Lident "Stdlib", m), "t");
+          loc;
+        },
+        args ) -> (
+      match List.assoc_opt m stdlib_modules with
+      | Some n ->
+          { ct with ptyp_desc = Ptyp_constr ({ txt = Lident n; loc }, args) }
+      | None -> ct)
+  | _ -> ct
+
 (* An inner type that writes [null] for a value of its own, which an option
    around it writes for [None] too. What is described [[@with d]] is [d]'s
    to say. *)
 type null_inside = Option_inside | Unit_inside
 
 let null_inside (ct : core_type) =
-  match ct.ptyp_desc with
+  match (short ct).ptyp_desc with
   | _ when Option.is_some (Attribute.get A.ct_with ct) -> None
   | Ptyp_constr ({ txt = Lident "option"; _ }, [ _ ]) -> Some Option_inside
   | Ptyp_constr ({ txt = Lident "unit"; _ }, []) -> Some Unit_inside
@@ -337,7 +374,7 @@ let rec desc env (ct : core_type) =
   | Some e -> e
   | None when Attribute.has_flag A.ct_dict ct -> dict env ct []
   | None -> (
-      match ct.ptyp_desc with
+      match (short ct).ptyp_desc with
       | Ptyp_constr ({ txt = Lident "int"; _ }, []) -> [%expr Wiretype.int]
       | Ptyp_constr ({ txt = Lident "int64"; _ }, []) -> [%expr Wiretype.int64]
       | Ptyp_constr ({ txt = Lident "float"; _ }, []) -> [%expr Wiretype.number]
@@ -345,27 +382,22 @@ let rec desc env (ct : core_type) =
           [%expr Wiretype.string]
       | Ptyp_constr ({ txt = Lident "bool"; _ }, []) -> [%expr Wiretype.bool]
       | Ptyp_constr ({ txt = Lident "unit"; _ }, []) -> [%expr Wiretype.null ()]
-      (* The stdlib's scalars Wiretype has no description of, by either of
-         its names, would be read as a type named here or in a module, and fail
-         as an unbound [int32_json] or [Int32.json]. *)
-      | Ptyp_constr
-          ({ txt = Lident "int32" | Ldot (Lident "Int32", "t"); _ }, []) ->
+      (* The stdlib's scalars Wiretype has no description of would be read
+         as a type named here or in a module, and fail as an unbound
+         [int32_json] or [Int32.json]. *)
+      | Ptyp_constr ({ txt = Lident "int32"; _ }, []) ->
           Location.raise_errorf ~loc
             "wiretype: int32 has no description; write int, which holds every \
              int32 on a 64-bit OCaml, or describe it with [@with d]"
-      | Ptyp_constr
-          ({ txt = Lident "nativeint" | Ldot (Lident "Nativeint", "t"); _ }, [])
-        ->
+      | Ptyp_constr ({ txt = Lident "nativeint"; _ }, []) ->
           Location.raise_errorf ~loc
             "wiretype: nativeint has no description; write int64, which holds \
              every nativeint, or describe it with [@with d]"
-      | Ptyp_constr ({ txt = Lident "char" | Ldot (Lident "Char", "t"); _ }, [])
-        ->
+      | Ptyp_constr ({ txt = Lident "char"; _ }, []) ->
           Location.raise_errorf ~loc
             "wiretype: char has no description; write string, or a variant of \
              the characters it may be"
-      | Ptyp_constr
-          ({ txt = Lident "bytes" | Ldot (Lident "Bytes", "t"); _ }, []) ->
+      | Ptyp_constr ({ txt = Lident "bytes"; _ }, []) ->
           Location.raise_errorf ~loc
             "wiretype: bytes has no description; write string, as a JSON \
              string is text, or describe it with [@with d]"
@@ -437,7 +469,7 @@ let rec desc env (ct : core_type) =
    a map, since which it is cannot be told from the type. *)
 and dict env (ct : core_type) bounds =
   let loc = ct.ptyp_loc in
-  match ct.ptyp_desc with
+  match (short ct).ptyp_desc with
   | Ptyp_constr
       ({ txt = Lident "list"; _ }, [ { ptyp_desc = Ptyp_tuple [ k; v ]; _ } ])
     ->
@@ -450,12 +482,12 @@ and dict env (ct : core_type) bounds =
          one; drop [@dict], or describe it with [@with d]"
 
 let is_option (ct : core_type) =
-  match ct.ptyp_desc with
+  match (short ct).ptyp_desc with
   | Ptyp_constr ({ txt = Lident "option"; _ }, [ inner ]) -> Some inner
   | _ -> None
 
 let base_name (ct : core_type) =
-  match ct.ptyp_desc with
+  match (short ct).ptyp_desc with
   | Ptyp_constr ({ txt = Lident n; _ }, _) -> Some n
   | _ -> None
 
@@ -465,7 +497,7 @@ let no_object (ct : core_type) =
   (not (Attribute.has_flag A.ct_dict ct))
   && Option.is_none (Attribute.get A.ct_with ct)
   &&
-  match ct.ptyp_desc with
+  match (short ct).ptyp_desc with
   | Ptyp_constr
       ( {
           txt =
@@ -620,7 +652,7 @@ let field_desc env ~target (ld : label_declaration) =
   | None when not (none properties) ->
       refuse "[@min_properties] and [@max_properties]" "a map, [@dict]"
   | None -> (
-      match (base_name target, target.ptyp_desc) with
+      match (base_name target, (short target).ptyp_desc) with
       | _, _ when none numeric && none exclusive && none length && none items ->
           desc env target
       | Some "int", _ when none exclusive && none length && none items ->

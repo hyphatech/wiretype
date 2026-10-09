@@ -1670,6 +1670,51 @@ module Awkward = struct
   type ratio = { r : float [@above 0.] [@below 1.] } [@@deriving wiretype]
 end
 
+(* One record by the compiler's names for its types and by the stdlib's
+   modules', which describe it alike. *)
+module Short = struct
+  type t = {
+    i : int; [@min 1]
+    l : int64;
+    f : float;
+    s : string;
+    b : bool;
+    u : unit;
+    xs : string list;
+    a : float array;
+    o : int option;
+    d : (string * int) list; [@dict]
+  }
+  [@@kind "row"] [@@deriving wiretype]
+end
+
+module Qualified = struct
+  type t = {
+    i : Int.t; [@min 1]
+    l : Stdlib.Int64.t;
+    f : Float.t;
+    s : Stdlib.String.t;
+    b : Bool.t;
+    u : Stdlib.Unit.t;
+    xs : String.t List.t;
+    a : Float.t Stdlib.Array.t;
+    o : Int.t Option.t;
+    d : (Stdlib.String.t * Int.t) Stdlib.List.t; [@dict]
+  }
+  [@@kind "row"] [@@deriving wiretype]
+end
+
+let derived_qualified () =
+  let schema json =
+    let ctx = J.Schema.create () in
+    let root = J.Schema.walk ctx J.Schema.Encode ~at:"row" json in
+    let components = J.Schema.components ctx in
+    ( J.Value.to_string (J.Schema.Json_schema.document components root),
+      J.Schema.Zod.components components )
+  in
+  Alcotest.(check (pair string string))
+    "the same schema" (schema Short.json) (schema Qualified.json)
+
 let derived_awkward () =
   Alcotest.(check int)
     "the pipe in scope is the caller's" 1 (Awkward.( |> ) 1 2);
@@ -2731,6 +2776,8 @@ let () =
           Alcotest.test_case "options, any JSON and arrays" `Quick
             derived_options;
           Alcotest.test_case "what once did not compile" `Quick derived_awkward;
+          Alcotest.test_case "the stdlib's types by their modules' names" `Quick
+            derived_qualified;
           Alcotest.test_case "attributes" `Quick derived_attributes;
         ] );
       ( "kinds",

@@ -45,6 +45,18 @@ let refused source message () =
   if not (contains said message) then
     Alcotest.failf "expected %S in:\n%s" message said
 
+(* What a declaration derives, without the declaration itself, so two
+   spellings of one type are compared by the description each writes. *)
+let derived source =
+  let structure = Parse.implementation (Lexing.from_string source) in
+  let items =
+    List.filter
+      (fun (item : structure_item) ->
+        match item.pstr_desc with Pstr_type _ -> false | _ -> true)
+      (Driver.map_structure structure)
+  in
+  Format.asprintf "%a" Pprintast.structure items
+
 let accepted source () =
   match expand source with
   | Ok _ -> ()
@@ -76,6 +88,11 @@ let () =
                   ("Char.t", "char has no description; write string");
                   ("Bytes.t", "bytes has no description; write string");
                   ("Char.t option", "char has no description; write string");
+                  ("Stdlib.Int32.t", "int32 has no description; write int");
+                  ( "Stdlib.Nativeint.t",
+                    "nativeint has no description; write int64" );
+                  ("Stdlib.Char.t", "char has no description; write string");
+                  ("Stdlib.Bytes.t", "bytes has no description; write string");
                 ]);
           Alcotest.test_case "several arguments" `Quick
             (refused "type t = A of int * string [@@deriving wiretype]"
@@ -92,6 +109,23 @@ let () =
                     ("type t = A of " ^ arg ^ " [@@deriving wiretype]")
                     "give it a name in an inline record" ())
                 [ "int list"; "string option"; "(int * int)"; "unit" ]);
+          Alcotest.test_case "an option of an option, by its module's name"
+            `Quick
+            (refused
+               "type t = { a : Int.t Option.t option } [@@deriving wiretype]"
+               "an option of an option may be left out");
+          Alcotest.test_case "an option of unit, by its module's name" `Quick
+            (refused
+               "type t = { a : Stdlib.Unit.t option } [@@deriving wiretype]"
+               "a unit option may be left out");
+          Alcotest.test_case "a case that is a scalar, by its module's name"
+            `Quick (fun () ->
+              List.iter
+                (fun arg ->
+                  refused
+                    ("type t = A of " ^ arg ^ " [@@deriving wiretype]")
+                    "give it a name in an inline record" ())
+                [ "String.t"; "Stdlib.Int.t"; "int List.t"; "Stdlib.Unit.t" ]);
           Alcotest.test_case "a polymorphic tag that is no object" `Quick
             (refused "type t = [ `A of string | `B ] [@@deriving wiretype]"
                "`A's argument is no object, and a case is an object's members; \
@@ -317,6 +351,56 @@ let () =
             (accepted
                "type t = { a : int; [@wiretype.deprecated] b : int } \
                 [@@deriving wiretype]");
+          Alcotest.test_case "a stdlib type by its module's name" `Quick
+            (fun () ->
+              List.iter
+                (fun (qualified, short) ->
+                  let record ty =
+                    "type t = { f : " ^ ty ^ " } [@@deriving wiretype]"
+                  in
+                  Alcotest.(check string)
+                    qualified
+                    (derived (record short))
+                    (derived (record qualified)))
+                [
+                  ("Int.t", "int");
+                  ("Int64.t", "int64");
+                  ("Float.t", "float");
+                  ("String.t", "string");
+                  ("Bool.t", "bool");
+                  ("Unit.t", "unit");
+                  ("Int.t List.t", "int list");
+                  ("Int.t Array.t", "int array");
+                  ("String.t Option.t", "string option");
+                  ("Stdlib.Int.t", "int");
+                  ("Stdlib.Int64.t", "int64");
+                  ("Stdlib.Float.t", "float");
+                  ("Stdlib.String.t", "string");
+                  ("Stdlib.Bool.t", "bool");
+                  ("Stdlib.Unit.t", "unit");
+                  ("Stdlib.Int.t Stdlib.List.t", "int list");
+                  ("Stdlib.Int.t Stdlib.Array.t", "int array");
+                  ("Stdlib.String.t Stdlib.Option.t", "string option");
+                  ("Int.t [@min 1] [@max 9]", "int [@min 1] [@max 9]");
+                  ("Int64.t [@min 1L]", "int64 [@min 1L]");
+                  ("Float.t [@above 0.]", "float [@above 0.]");
+                  ("String.t [@min_length 1]", "string [@min_length 1]");
+                  ("Int.t List.t [@max_items 3]", "int list [@max_items 3]");
+                  ( "(String.t * Int.t) List.t [@dict]",
+                    "(string * int) list [@dict]" );
+                  ( "String.t Option.t [@default \"a\"]",
+                    "string option [@default \"a\"]" );
+                ]);
+          Alcotest.test_case "a type of a module of another name" `Quick
+            (fun () ->
+              let said =
+                derived
+                  "type t = { a : M.t; b : String.u; c : Stdlib.Seq.t } \
+                   [@@deriving wiretype]"
+              in
+              List.iter
+                (fun sub -> Alcotest.(check bool) sub true (contains said sub))
+                [ "M.json"; "String.u_json"; "Stdlib.Seq.json" ]);
           Alcotest.test_case "another deriver's attributes" `Quick
             (accepted
                "type t = { a : int [@yojson.key \"b\"] [@ocaml.warning \
