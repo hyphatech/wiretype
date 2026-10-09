@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The deriver reads a type written by its stdlib module's name -- `String.t`,
+- Breaking: the deriver reads a type written by its stdlib module's name -- `String.t`,
   `'a List.t`, `Stdlib.Int64.t` -- as its short name, bounds and an
   option's member alike, where the derived code failed to compile on an
   unbound `String.json`; `Stdlib.Int32.t` and its kin are refused as
