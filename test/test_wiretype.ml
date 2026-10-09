@@ -364,6 +364,44 @@ let numbers () =
   Alcotest.(check (result int64 reject))
     "int64 exactly" (Ok 9223372036854775807L)
     (ok J.int64 "9223372036854775807");
+  (* Whether a number written with a fraction or an exponent is whole is
+     read from its digits, and from 2^53 a double cannot say which whole
+     number it is. *)
+  List.iter
+    (fun (text, expected) ->
+      Alcotest.(check (result int (list problem)))
+        ("int " ^ text) expected
+        (Result.map_error
+           (List.map (fun (p : P.t) -> (P.path p.at, P.code_to_string p.code)))
+           (ok J.int text)))
+    [
+      ("9007199254740991.0", Ok 9007199254740991);
+      ("-9007199254740991.0", Ok (-9007199254740991));
+      ("12.50e1", Ok 125);
+      ("-0.0", Ok 0);
+      ("0e-99999999999999999999", Ok 0);
+      ("1.0000000000000000001", Error [ ("", "unexpected_type") ]);
+      ("1.5e-400", Error [ ("", "unexpected_type") ]);
+      ("1e-99999999999999999999", Error [ ("", "unexpected_type") ]);
+      ("9007199254740992.0", Error [ ("", "too_large") ]);
+      ("9007199254740993.0", Error [ ("", "too_large") ]);
+      ("-9007199254740993.0", Error [ ("", "too_small") ]);
+      ("1e99999999999999999999", Error [ ("", "too_large") ]);
+    ];
+  List.iter
+    (fun (text, expected) ->
+      Alcotest.(check (result int64 (list problem)))
+        ("int64 " ^ text) expected
+        (Result.map_error
+           (List.map (fun (p : P.t) -> (P.path p.at, P.code_to_string p.code)))
+           (ok J.int64 text)))
+    [
+      ("9007199254740991.0", Ok 9007199254740991L);
+      ("1.0000000000000000001", Error [ ("", "unexpected_type") ]);
+      ("1.5e-400", Error [ ("", "unexpected_type") ]);
+      ("9007199254740992.0", Error [ ("", "too_large") ]);
+      ("9007199254740993.0", Error [ ("", "too_large") ]);
+    ];
   Alcotest.(check (list problem))
     "a fraction is not an integer"
     [ ("", "unexpected_type") ]

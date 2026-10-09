@@ -490,6 +490,41 @@ let past_type st path negative what =
        what);
   None
 
+(* Whether a number written with a fraction or an exponent is whole, read
+   from its digits: every digit the exponent leaves after the decimal point
+   is a zero. A double cannot say, since [1.0000000000000000001] rounds to
+   [1.]. An exponent past nine digits is as good as infinite. *)
+let whole text =
+  let split c s =
+    match String.index_opt s c with
+    | Some i ->
+        (String.sub s 0 i, String.sub s (i + 1) (String.length s - i - 1))
+    | None -> (s, "")
+  in
+  let mantissa, exponent = split 'e' (String.lowercase_ascii text) in
+  let integer, fraction = split '.' mantissa in
+  let integer =
+    if String.starts_with ~prefix:"-" integer then
+      String.sub integer 1 (String.length integer - 1)
+    else integer
+  in
+  let magnitude =
+    String.fold_left
+      (fun m c ->
+        match c with
+        | '0' .. '9' -> Int.min 1_000_000_000 ((m * 10) + Char.code c - 48)
+        | _ -> m)
+      0 exponent
+  in
+  let shift =
+    if String.starts_with ~prefix:"-" exponent then -magnitude else magnitude
+  in
+  let digits = integer ^ fraction in
+  let first = Int.max 0 (String.length integer + shift) in
+  first >= String.length digits
+  || String.for_all (Char.equal '0')
+       (String.sub digits first (String.length digits - first))
+
 let int_ st path (b : S.int_bounds) =
   let text, integral = number st path in
   let negative = Char.equal text.[0] '-' in
@@ -498,14 +533,15 @@ let int_ st path (b : S.int_bounds) =
       match int_of_string_opt text with
       | Some n -> Some n
       | None -> past_type st path negative "a whole number here"
+    else if not (whole text) then (
+      report st path P.Unexpected_type
+        "This must be a whole number, not a fraction.";
+      None)
     else
+      (* Below 2^53 a double holds every whole number, so the one it reads
+           is the one written; from 2^53 it may be a neighbour. *)
       let f = float_of_string text in
-      (* Past a double, a number is too large before it is a fraction. *)
-      if Float.is_finite f && not (Float.is_integer f) then (
-        report st path P.Unexpected_type
-          "This must be a whole number, not a fraction.";
-        None)
-      else if Float.abs f > 0x1p53 then
+      if Float.abs f >= 0x1p53 then
         past_type st path negative "a whole number written with a fraction"
       else Some (Float.to_int f)
   in
@@ -537,13 +573,13 @@ let int64_ st path (b : S.int64_bounds) =
       match Int64.of_string_opt text with
       | Some n -> Some n
       | None -> past_type st path negative "a 64-bit whole number"
+    else if not (whole text) then (
+      report st path P.Unexpected_type
+        "This must be a whole number, not a fraction.";
+      None)
     else
       let f = float_of_string text in
-      if Float.is_finite f && not (Float.is_integer f) then (
-        report st path P.Unexpected_type
-          "This must be a whole number, not a fraction.";
-        None)
-      else if Float.abs f > 0x1p53 then
+      if Float.abs f >= 0x1p53 then
         past_type st path negative "a whole number written with a fraction"
       else Some (Int64.of_float f)
   in

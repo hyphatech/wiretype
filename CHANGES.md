@@ -5,6 +5,12 @@
 - Breaking: OCaml 5.5 or later is required. The opam files asked for 5.4,
   which CI tested and nothing else did; every switch the code is written
   in is 5.5.
+- Breaking: an `int` or `int64` written with a fraction or an exponent is
+  whole where its digits are, never where the double it rounds to is:
+  `1.0000000000000000001` and `1.5e-400` are fractions, where they were
+  read as `1` and `0`. One of 2^53 or more so written is `too_large` or
+  `too_small`, since a double cannot say which whole number it is:
+  `9007199254740993.0` was read as `9007199254740992`.
 
 ## 0.2.0 (2026-10-08)
 

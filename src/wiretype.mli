@@ -93,11 +93,13 @@ val null : 'a -> 'a t
 val bool : bool t
 
 val int : int t
-(** A whole number, read from its digits. A number written with a fraction that
-    is whole -- [2.0], [1e3] -- is one, as JSON Schema's [integer] is, up to
-    2{^ 53}, past which a fraction's digits are not exact. A JavaScript client
-    holds an integer exactly only up to 2{^ 53}, and zod's [z.int()] refuses one
-    past it: an id that may be larger travels as text, through {!kind}. *)
+(** A whole number, read from its digits. One written with a fraction or an
+    exponent -- [2.0], [1e3] -- is read where its digits are whole, as JSON
+    Schema's [integer] is, so [1.0000000000000000001] is a fraction, and only
+    below 2{^ 53}, from which a double cannot tell which whole number it is. A
+    JavaScript client holds an integer exactly only up to 2{^ 53}, and zod's
+    [z.int()] refuses one past it: an id that may be larger travels as text,
+    through {!kind}. *)
 
 val int_bounded : ?min:int -> ?max:int -> ?multiple_of:int -> unit -> int t
 (** Checked while reading, and stated in the schema; [multiple_of] exactly.
