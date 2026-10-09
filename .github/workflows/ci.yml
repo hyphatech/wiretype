@@ -39,7 +39,12 @@ jobs:
       - uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: "5.5"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
       - run: opam install . --deps-only --with-test -y
+      - run: npm ci
+        working-directory: test/zod
       - run: opam list --installed --columns=name,version
       - run: make build OPAM="opam exec --"
-      - run: opam exec -- dune test --force
+      - run: make test OPAM="opam exec --"
