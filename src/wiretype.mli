@@ -103,7 +103,8 @@ val int : int t
 
 val int_bounded : ?min:int -> ?max:int -> ?multiple_of:int -> unit -> int t
 (** Checked while reading, and stated in the schema; [multiple_of] exactly.
-    Raises [Invalid_argument] where [multiple_of] is not positive. *)
+    Raises [Invalid_argument] where [multiple_of] is not positive, or [min] is
+    more than [max]. *)
 
 val int64 : int64 t
 (** As {!int}, to 2{^ 63}: past 2{^ 53}, a JavaScript client can neither hold it
@@ -111,7 +112,8 @@ val int64 : int64 t
 
 val int64_bounded :
   ?min:int64 -> ?max:int64 -> ?multiple_of:int64 -> unit -> int64 t
-(** Raises [Invalid_argument] where [multiple_of] is not positive. *)
+(** Raises [Invalid_argument] where [multiple_of] is not positive, or [min] is
+    more than [max]. *)
 
 val number : float t
 (** A JSON number, as a double; one that overflows a double is too large. A
@@ -130,14 +132,16 @@ val number_bounded :
     within a few rounding errors, so [19.99] is a multiple of [0.01], as the
     decimals written mean. An infinite bound every number meets --
     [~max:infinity] -- is none. Raises [Invalid_argument] where a bound is one
-    no number meets, or no number, or [multiple_of] is not a positive finite
-    number. *)
+    no number meets, or no number, where no number is between a least and a
+    most, or where [multiple_of] is not a positive finite number. *)
 
 val string : string t
 (** Text, checked as UTF-8. *)
 
 val string_bounded : ?min_length:int -> ?max_length:int -> unit -> string t
-(** A length in code points, as JSON Schema counts one. *)
+(** A length in code points, as JSON Schema counts one. Raises
+    [Invalid_argument] where a length is negative, or [min_length] is more than
+    [max_length]. *)
 
 val enum : ?kind:string -> ?doc:string -> ('a -> string) -> 'a list -> 'a t
 (** [enum word values]: each value written as its word, and read from it. Its
@@ -201,6 +205,8 @@ val ipv6 : string t
 (** {1 Descriptions of descriptions} *)
 
 val list : ?min_items:int -> ?max_items:int -> 'a t -> 'a list t
+(** Raises [Invalid_argument] where a count is negative, or [min_items] is more
+    than [max_items]. *)
 
 val dict :
   ?min_properties:int -> ?max_properties:int -> 'k t -> 'v t -> ('k * 'v) list t
@@ -210,7 +216,8 @@ val dict :
     A name that is wrong is a problem at the name ({!Problem.Name}). A name
     given twice is refused both ways: in a document, and in a list written with
     one twice. A key that is not written as text is refused on writing, and is
-    an error of the schema. *)
+    an error of the schema. Raises [Invalid_argument] where a count is negative,
+    or [min_properties] is more than [max_properties]. *)
 
 val tuple2 : 'a t -> 'b t -> ('a * 'b) t
 (** A JSON array of exactly two items, each read by its own description: a list

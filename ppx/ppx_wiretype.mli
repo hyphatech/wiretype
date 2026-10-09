@@ -10,7 +10,8 @@
       by [d] -- the inner type's, on an [option]. [[@min]], [[@max]],
       [[@multiple_of]] bound an [int], [int64] or [float], and [[@above]],
       [[@below]] a [float]; [[@min_length]], [[@max_length]] a [string];
-      [[@min_items]], [[@max_items]] a [list]. [[@read_only]] or
+      [[@min_items]], [[@max_items]] a [list]; a least and a most written as
+      literals with no value between them are refused. [[@read_only]] or
       [[@write_only]], [[@wiretype.deprecated]] and [[@examples [...]]] are what
       a document says of it, and a field's doc comment is its doc, as the type's
       is the object's.

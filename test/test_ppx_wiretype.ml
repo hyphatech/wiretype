@@ -77,6 +77,27 @@ let () =
             (refused "type t = [ `A of string | `B ] [@@deriving wiretype]"
                "`A's argument is no object, and a case is an object's members; \
                 give it a record type of its own");
+          Alcotest.test_case "bounds nothing is between" `Quick
+            (refused
+               "type t = { n : int [@min 5] [@max 3] } [@@deriving wiretype]"
+               "wiretype: [@min 5] and [@max 3] leave no value between them");
+          Alcotest.test_case "a length's, a count's, an exclusive one's" `Quick
+            (fun () ->
+              List.iter
+                (fun field ->
+                  refused
+                    ("type t = { " ^ field ^ " } [@@deriving wiretype]")
+                    "leave no value between them" ())
+                [
+                  "s : string [@min_length 3] [@max_length 2]";
+                  "l : int list [@min_items 1] [@max_items 0]";
+                  "m : (string * int) list [@dict] [@min_properties 9] \
+                   [@max_properties 1]";
+                  "x : float [@above 1.] [@below 1.]";
+                  "x : float [@min 1.5] [@below 1.5]";
+                  "x : float [@above 2.] [@max 1e0]";
+                  "n : int64 [@min 2L] [@max 1L]";
+                ]);
           Alcotest.test_case "a bound on text" `Quick
             (refused "type t = { n : string [@min 1] } [@@deriving wiretype]"
                "bound an int, an int64 or a float");
@@ -221,6 +242,10 @@ let () =
             (accepted
                "type 'a t = A of point | B of M.t | C of 'a [@@deriving \
                 wiretype]");
+          Alcotest.test_case "bounds one value meets, or not literals" `Quick
+            (accepted
+               "type t = { a : int [@min 3] [@max 3]; b : float [@min 1.] \
+                [@max 1.]; c : int [@min n] [@max 0] } [@@deriving wiretype]");
           Alcotest.test_case "a tuple" `Quick
             (accepted
                "type t = { p : int * string * float } [@@deriving wiretype]");

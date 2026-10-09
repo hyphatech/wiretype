@@ -21,6 +21,12 @@
   value from `null` is `mem ~absent` over a `nullable`: `[@default e]` on
   an `option` field.
 
+- Breaking: a bound no value meets raises `Invalid_argument` where the
+  description is built -- a least past its most in `int_bounded`,
+  `int64_bounded`, `number_bounded` (`~above:1. ~max:1.` among them),
+  `string_bounded`, `list` and `dict`, or a negative length or count --
+  where it was taken and every document then refused. The deriver refuses
+  such a pair written as literals (`[@min 5] [@max 3]`).
 - A derived variant whose one argument is no object -- `A of int`, a list,
   an array, an option, a tuple -- is refused where it is written, saying to
   give it a name in an inline record, where it compiled and raised when the

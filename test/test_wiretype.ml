@@ -713,6 +713,54 @@ let malformed_descriptions () =
   refused "a bound that is no number"
     "Wiretype.number_bounded: min is nan, which no number meets" (fun () ->
       J.number_bounded ~min:Float.nan ());
+  refused "an int's bounds that nothing is between"
+    "Wiretype.int_bounded: min is 5 and max 3, which no integer meets"
+    (fun () -> J.int_bounded ~min:5 ~max:3 ());
+  refused "an int64's"
+    "Wiretype.int64_bounded: min is 5 and max -5, which no integer meets"
+    (fun () -> J.int64_bounded ~min:5L ~max:(-5L) ());
+  refused "a number's"
+    "Wiretype.number_bounded: min is 2 and max 1, which no number meets"
+    (fun () -> J.number_bounded ~min:2. ~max:1. ());
+  refused "a number's, one of them exclusive"
+    "Wiretype.number_bounded: min is 1 and below 1, which no number meets"
+    (fun () -> J.number_bounded ~min:1. ~below:1. ());
+  refused "a number's, the other exclusive"
+    "Wiretype.number_bounded: above is 1 and max 1, which no number meets"
+    (fun () -> J.number_bounded ~above:1. ~max:1. ());
+  refused "a number's, both exclusive"
+    "Wiretype.number_bounded: above is 0 and below 0, which no number meets"
+    (fun () -> J.number_bounded ~above:0. ~below:0. ());
+  refused "a length's"
+    "Wiretype.string_bounded: min_length is 3 and max_length 2, which no \
+     string meets" (fun () -> J.string_bounded ~min_length:3 ~max_length:2 ());
+  refused "a negative length"
+    "Wiretype.string_bounded: max_length is -1, and a count is never negative"
+    (fun () -> J.string_bounded ~max_length:(-1) ());
+  refused "a list's count"
+    "Wiretype.list: min_items is 2 and max_items 1, which no list meets"
+    (fun () -> J.list ~min_items:2 ~max_items:1 J.int);
+  refused "a negative count"
+    "Wiretype.list: min_items is -1, and a count is never negative" (fun () ->
+      J.list ~min_items:(-1) J.int);
+  refused "a map's count"
+    "Wiretype.dict: min_properties is 2 and max_properties 1, which no map \
+     meets" (fun () ->
+      J.dict ~min_properties:2 ~max_properties:1 J.string J.int);
+  refused "a negative count of members"
+    "Wiretype.dict: max_properties is -2, and a count is never negative"
+    (fun () -> J.dict ~max_properties:(-2) J.string J.int);
+  Alcotest.(check bool)
+    "but bounds that one value meets are bounds" true
+    (List.for_all Result.is_ok
+       [
+         J.decode (J.int_bounded ~min:3 ~max:3 ()) "3" |> Result.map ignore;
+         J.decode (J.number_bounded ~min:1. ~max:1. ()) "1" |> Result.map ignore;
+         J.decode (J.string_bounded ~min_length:0 ~max_length:0 ()) {|""|}
+         |> Result.map ignore;
+         J.decode (J.list ~min_items:1 ~max_items:1 J.int) "[1]"
+         |> Result.map ignore;
+       ]);
   Alcotest.(check bool)
     "but one every number meets is none" true
     (Result.is_ok

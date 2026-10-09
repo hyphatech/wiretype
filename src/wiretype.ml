@@ -36,6 +36,20 @@ let first_repeated words =
 
 let about ?(kind = "") ?(doc = "") () : S.about = { kind; doc }
 
+(* A count -- a length, a number of items or members -- is never negative,
+   and its least is at most its most, or no value meets it. *)
+let counted fn ~what (low, min) (high, max) =
+  List.iter
+    (function
+      | name, Some n when n < 0 ->
+          malformed fn "%s is %d, and a count is never negative" name n
+      | _, (Some _ | None) -> ())
+    [ (low, min); (high, max) ];
+  match (min, max) with
+  | Some lo, Some hi when lo > hi ->
+      malformed fn "%s is %d and %s %d, which no %s meets" low lo high hi what
+  | _ -> ()
+
 (* A description of itself is named once: inside it, a description of
    itself again is "itself", which also ends the walk. *)
 let name t =
@@ -71,6 +85,11 @@ let int_bounded ?min ?max ?multiple_of () =
   | Some m when m <= 0 ->
       malformed "int_bounded" "multiple_of is %d, and must be positive" m
   | Some _ | None -> ());
+  (match (min, max) with
+  | Some lo, Some hi when lo > hi ->
+      malformed "int_bounded" "min is %d and max %d, which no integer meets" lo
+        hi
+  | _ -> ());
   S.Int { min; max; multiple_of }
 
 let int64 = S.Int64 { min = None; max = None; multiple_of = None }
@@ -80,6 +99,11 @@ let int64_bounded ?min ?max ?multiple_of () =
   | Some m when Int64.compare m 0L <= 0 ->
       malformed "int64_bounded" "multiple_of is %Ld, and must be positive" m
   | Some _ | None -> ());
+  (match (min, max) with
+  | Some lo, Some hi when Int64.compare lo hi > 0 ->
+      malformed "int64_bounded" "min is %Ld and max %Ld, which no integer meets"
+        lo hi
+  | _ -> ());
   S.Int64 { min; max; multiple_of }
 
 let number =
@@ -103,11 +127,29 @@ let number_bounded ?min ?max ?above ?below ?multiple_of () =
   | Some m when not (Float.is_finite m && Float.compare m 0. > 0) ->
       malformed "number_bounded" "multiple_of is %g, and must be positive" m
   | Some _ | None -> ());
+  (* A least and a most that no number is between: an exclusive bound meets
+     nothing at the other's value. *)
+  List.iter
+    (fun ((low, lo), (high, hi), exclusive) ->
+      match (lo, hi) with
+      | Some lo, Some hi
+        when Float.compare lo hi > 0 || (exclusive && Float.equal lo hi) ->
+          malformed "number_bounded" "%s is %g and %s %g, which no number meets"
+            low lo high hi
+      | _ -> ())
+    [
+      (("min", min), ("max", max), false);
+      (("min", min), ("below", below), true);
+      (("above", above), ("max", max), true);
+      (("above", above), ("below", below), true);
+    ];
   S.Number { min; max; above; below; multiple_of }
 
 let string = S.String { min_length = None; max_length = None }
 
 let string_bounded ?min_length ?max_length () =
+  counted "string_bounded" ~what:"string" ("min_length", min_length)
+    ("max_length", max_length);
   S.String { min_length; max_length }
 
 let enum ?kind ?doc word values =
@@ -118,9 +160,14 @@ let enum ?kind ?doc word values =
     ( about ?kind ?doc (),
       { words = List.map (fun v -> (word v, v)) values; word } )
 
-let list ?min_items ?max_items elt = S.List { elt; min_items; max_items }
+let list ?min_items ?max_items elt =
+  counted "list" ~what:"list" ("min_items", min_items) ("max_items", max_items);
+  S.List { elt; min_items; max_items }
 
 let dict ?min_properties ?max_properties key value =
+  counted "dict" ~what:"map"
+    ("min_properties", min_properties)
+    ("max_properties", max_properties);
   S.Dict { key; value; min_properties; max_properties }
 
 module Tuple = struct

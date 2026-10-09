@@ -486,7 +486,7 @@ let test_what_the_reader_means () =
     ( {|{"type":"integer","maximum":5}|},
       "z.int().check(z.lte(5))",
       [ "test: a bound past 2^53, which a double holds only roughly" ] )
-    (printed (Wiretype.int64_bounded ~min:9007199254740993L ~max:5L ()));
+    (printed (Wiretype.int64_bounded ~min:(-9007199254740993L) ~max:5L ()));
   Alcotest.(check (triple string string (list string)))
     "an int's too"
     ( {|{"type":"integer"}|},

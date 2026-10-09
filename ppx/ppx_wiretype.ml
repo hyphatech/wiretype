@@ -460,6 +460,53 @@ let fields spelling lds =
     [] lds
   |> List.rev
 
+(* A bound's least past its most is refused where both are written as
+   literals, rather than by the library when the program starts. *)
+type literal = Whole of int64 | Real of float
+
+let literal (e : expression) =
+  match e.pexp_desc with
+  | Pexp_constant (Pconst_integer (s, _)) ->
+      Option.map (fun n -> Whole n) (Int64.of_string_opt s)
+  | Pexp_constant (Pconst_float (s, _)) ->
+      Option.map (fun x -> Real x) (Float.of_string_opt s)
+  | _ -> None
+
+let check_bounds (ld : label_declaration) =
+  List.iter
+    (fun ((low, a), (high, b), exclusive) ->
+      match (Attribute.get a ld, Attribute.get b ld) with
+      | Some lo, Some hi ->
+          let order =
+            match (literal lo, literal hi) with
+            | Some (Whole x), Some (Whole y) -> Some (Int64.compare x y)
+            | Some (Real x), Some (Real y) -> Some (Float.compare x y)
+            | _ -> None
+          in
+          let none_between =
+            match order with
+            | Some c -> c > 0 || (exclusive && c = 0)
+            | None -> false
+          in
+          if none_between then
+            Location.raise_errorf ~loc:ld.pld_loc
+              "wiretype: [@%s %s] and [@%s %s] leave no value between them" low
+              (Pprintast.string_of_expression lo)
+              high
+              (Pprintast.string_of_expression hi)
+      | _ -> ())
+    [
+      (("min", A.min), ("max", A.max), false);
+      (("min", A.min), ("below", A.below), true);
+      (("above", A.above), ("max", A.max), true);
+      (("above", A.above), ("below", A.below), true);
+      (("min_length", A.min_length), ("max_length", A.max_length), false);
+      (("min_items", A.min_items), ("max_items", A.max_items), false);
+      ( ("min_properties", A.min_properties),
+        ("max_properties", A.max_properties),
+        false );
+    ]
+
 let labelled label e = (Labelled label, e)
 let some label = Option.map (labelled label)
 
@@ -467,6 +514,7 @@ let some label = Option.map (labelled label)
    option, which is what may be left out. *)
 let field_desc env ~target (ld : label_declaration) =
   let loc = ld.pld_loc in
+  check_bounds ld;
   let get a = Attribute.get a ld in
   let numeric =
     List.filter_map Fun.id
