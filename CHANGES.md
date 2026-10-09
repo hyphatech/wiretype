@@ -11,6 +11,10 @@
   read as `1` and `0`. One of 2^53 or more so written is `too_large` or
   `too_small`, since a double cannot say which whole number it is:
   `9007199254740993.0` was read as `9007199254740992`.
+- Breaking: `encode` refuses, as `unspellable` at its path, a
+  `Value.Number` that is not finite in any JSON, which it wrote `null`
+  though its documentation said such a float is not written. `Value.write`
+  still writes it `null`, and says so.
 
 ## 0.2.0 (2026-10-08)
 

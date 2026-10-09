@@ -1402,6 +1402,11 @@ let unwritable () =
   refused "a number that is no JSON number" J.number Float.nan " unspellable";
   refused "nor an infinite one" (J.list J.number) [ Float.infinity ]
     "[0] unspellable";
+  refused "nor one in any JSON" J.Value.json
+    (V.Object [ ("a", V.Array [ V.Number Float.neg_infinity ]) ])
+    "a[0] unspellable";
+  refused "nor any JSON that is one" J.Value.json (V.Number Float.nan)
+    " unspellable";
   refused "a value an enum has no word for"
     (J.enum string_of_int [ 1; 2 ])
     3 " unspellable";
@@ -1835,12 +1840,10 @@ let idna_rows () =
 let bytes () =
   let enc v = written J.Value.json v in
   Alcotest.(check (result string string))
-    "numbers" (Ok "[0.1,0.30000000000000004,3,-0,1e+21,null]")
+    "numbers" (Ok "[0.1,0.30000000000000004,3,-0,1e+21]")
     (enc
        (V.Array
-          (List.map
-             (fun f -> V.Number f)
-             [ 0.1; 0.1 +. 0.2; 3.; -0.; 1e21; Float.nan ])));
+          (List.map (fun f -> V.Number f) [ 0.1; 0.1 +. 0.2; 3.; -0.; 1e21 ])));
   Alcotest.(check (result string string))
     "escapes" (Ok {|"q\"b\\n\nc\u0001d\u007Fé"|})
     (enc (V.String "q\"b\\n\nc\001d\127é"));

@@ -19,7 +19,8 @@ val find : string -> t -> t option
 (** The member of that name, if this is an object that has one. *)
 
 val write : Buffer.t -> t -> unit
-(** Minified, as {!Wiretype.encode} writes. *)
+(** Minified, as {!Wiretype.encode} writes; a number that is not finite, which
+    [encode] refuses, as [null]. *)
 
 val to_string : t -> string
 val pp : Format.formatter -> t -> unit

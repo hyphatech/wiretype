@@ -124,6 +124,8 @@ let rec value : type a. Buffer.t -> path -> int -> a S.t -> a -> unit =
 (* Any JSON, held to what a reader takes as any description is. *)
 and json b path depth (v : Value.t) =
   match v with
+  | Number f when not (Float.is_finite f) ->
+      fail path U.Unspellable "%s is no JSON number." (Float.to_string f)
   | Null | Bool _ | Number _ -> Value.write b v
   | String s -> text b path s
   | Array items ->
