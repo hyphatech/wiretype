@@ -20,17 +20,29 @@ type st = {
   len : int;
   mutable i : int;
   mutable problems : P.t list;  (** newest first *)
+  mutable listed : int;
+      (** how many problems are held: in [problems], and any set aside *)
   max_depth : int;
+  max_problems : int;
 }
 
 (* Raised with the problem that ends reading, and caught in [run]: it never
    leaves this module. *)
 exception Stop of P.t
 
+(* Raised where one problem more than the limit is found: reading stops with
+   the problems held, and [run] says there were more. *)
+exception Enough
+
 type path = P.segment list (* innermost first *)
 
+let add st p =
+  if st.listed >= st.max_problems then raise Enough;
+  st.problems <- p :: st.problems;
+  st.listed <- st.listed + 1
+
 let report st (path : path) code message =
-  st.problems <- { P.at = List.rev path; code; message } :: st.problems
+  add st { P.at = List.rev path; code; message }
 
 let fatal path code message =
   raise (Stop { P.at = List.rev path; code; message })
@@ -423,13 +435,22 @@ let rec json st path depth : Value.t =
    nothing is taken as the nearest that does. *)
 let max_depth_ceiling = 10_000
 
-let state ?(max_depth = Encode.max_depth) s =
+(* A body is answered to a client, which shows a person the first few of its
+   problems, and to a log: a hundred is more than any form shows, and keeps
+   the answer to a few kilobytes where a megabyte of wrong items would
+   otherwise be a quarter of a million problems. *)
+let default_max_problems = 100
+
+let state ?(max_depth = Encode.max_depth) ?(max_problems = default_max_problems)
+    s =
   {
     s;
     len = String.length s;
     i = 0;
     problems = [];
+    listed = 0;
     max_depth = Int.max 0 (Int.min max_depth max_depth_ceiling);
+    max_problems = Int.max 0 max_problems;
   }
 
 (* A value as the JSON it is written as: a union's tag, compared with the
@@ -452,7 +473,7 @@ let written shape v =
       in
       match json st [] 0 with
       | v when List.is_empty st.problems -> Ok v
-      | _ -> unspellable (List.rev st.problems)
+      | _ | (exception Enough) -> unspellable (List.rev st.problems)
       | exception Stop p -> unspellable [ p ])
 
 (* ------------------------------------------------------------------ *)
@@ -917,14 +938,21 @@ and key : type k. st -> path -> k S.t -> string -> k option =
   match shape with
   | S.String l -> string_bounded st at l name
   | _ -> (
-      let quoted = state ~max_depth:st.max_depth (Text.quote name) in
+      let quoted =
+        state ~max_depth:st.max_depth ~max_problems:st.max_problems
+          (Text.quote name)
+      in
+      let join problems = List.iter (add st) (List.rev problems) in
       match value quoted at 0 shape with
       | v ->
-          st.problems <- quoted.problems @ st.problems;
+          join quoted.problems;
           v
       | exception Stop p ->
-          st.problems <- (p :: quoted.problems) @ st.problems;
-          None)
+          join (p :: quoted.problems);
+          None
+      | exception Enough ->
+          join quoted.problems;
+          raise Enough)
 
 (* A tuple's items, each read by its own description at its place; a list
    of another length is a problem of the list's, said once it has ended. *)
@@ -1214,14 +1242,19 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
            does. *)
         let before = st.problems in
         st.problems <- [];
-        skip st at (depth + 1);
+        (match skip st at (depth + 1) with
+        | () -> ()
+        | exception Enough ->
+            st.problems <- st.problems @ before;
+            raise Enough);
         let inside = st.problems in
         st.problems <- before;
+        st.listed <- st.listed - List.length inside;
         let names, acc =
           if Names.mem name names then (
             report st at P.Repeated_member
               "This member is given more than once.";
-            st.problems <- inside @ st.problems;
+            List.iter (add st) (List.rev inside);
             (names, acc))
           else (Names.add name names, (name, pos, inside) :: acc)
         in
@@ -1260,14 +1293,14 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
           m.set ()
       | None ->
           unknown st (P.Member name :: path) policy;
-          st.problems <- inside @ st.problems)
+          List.iter (add st) (List.rev inside))
     members;
   fill ();
   st.i <- stop;
   k ()
 
-let run ?max_depth shape s =
-  let st = state ?max_depth s in
+let run ?max_depth ?max_problems shape s =
+  let st = state ?max_depth ?max_problems s in
   let read () =
     let v = value st [] 0 shape in
     ws st;
@@ -1276,6 +1309,18 @@ let run ?max_depth shape s =
   in
   match read () with
   | exception Stop p -> Error [ p ]
+  | exception Enough ->
+      let message =
+        if st.max_problems = 0 then "This has problems, and none are listed."
+        else
+          Printf.sprintf
+            "This has more problems than the %d listed, and was read no \
+             further."
+            st.max_problems
+      in
+      Error
+        (List.rev
+           ({ P.at = []; code = P.Too_many_problems; message } :: st.problems))
   | v -> (
       match (v, st.problems) with
       | Some v, [] -> Ok v

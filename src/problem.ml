@@ -16,6 +16,7 @@ type code =
   | Unknown_member
   | Repeated_member
   | Malformed
+  | Too_many_problems
 
 let code_to_string = function
   | Syntax -> "syntax"
@@ -33,6 +34,7 @@ let code_to_string = function
   | Unknown_member -> "unknown_member"
   | Repeated_member -> "repeated_member"
   | Malformed -> "malformed"
+  | Too_many_problems -> "too_many_problems"
 
 type t = { at : segment list; code : code; message : string }
 

@@ -23,7 +23,8 @@
     {b Reading} is one pass over the text with the description in hand, and
     reports every problem the document has, each at its place with a code
     ({!Problem}) -- but for text that is not JSON, or nested past the limit,
-    which is that one problem alone. A number is read from its digits by the
+    which is that one problem alone, and past a hundred problems, where reading
+    stops and says there were more. A number is read from its digits by the
     description that wants it, so an integer is exact; a member given twice is
     refused, as I-JSON (RFC 7493 §2.3) has it, because two readers that choose
     differently read two documents.
@@ -65,10 +66,18 @@ type 'a t = 'a Shape.t
 
 (** {1 Reading and writing} *)
 
-val decode : ?max_depth:int -> 'a t -> string -> ('a, Problem.t list) result
+val decode :
+  ?max_depth:int ->
+  ?max_problems:int ->
+  'a t ->
+  string ->
+  ('a, Problem.t list) result
 (** [max_depth] is how deep the document may nest, 512 unless given and never
     more than 10,000: [[]] is nested one deep, and a limit of 0 reads a scalar
-    alone, as any below it does. *)
+    alone, as any below it does. [max_problems] is how many problems are listed,
+    100 unless given: past it, reading stops -- what follows, even text that is
+    not JSON, is not read -- and the list ends with a
+    {!Problem.Too_many_problems}. A limit below 0 is 0. *)
 
 val encode : 'a t -> 'a -> (string, Unwritable.t) result
 (** [Error] is the first place that could not be written, and why: a description
@@ -83,6 +92,7 @@ val to_value : 'a t -> 'a -> (Value.t, Unwritable.t) result
 (** The value as the JSON {!encode} writes for it. *)
 
 val of_value : 'a t -> Value.t -> ('a, Problem.t list) result
+(** The value read as {!decode} reads the JSON it is, with its limits. *)
 
 val name : 'a t -> string
 (** What the description is called where it is spoken of: its kind, or its sort.

@@ -101,7 +101,9 @@ walk it too.
 
 - **Every problem, in one pass**: each with its path (`items[2].count`), a
   code a client branches on (`required`, `too_large`, `unknown_word`, ...)
-  and a sentence for a person.
+  and a sentence for a person. Past a hundred, or `~max_problems`,
+  reading stops and says there were more, so a body of a megabyte of
+  wrong items is a short answer.
 - **Exact numbers**: an `int` is read from its digits, and a double is
   written in the fewest digits that read back as itself.
 - **Strict where readers disagree**: UTF-8 is checked, and a member given

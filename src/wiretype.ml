@@ -13,7 +13,9 @@ module S = Shape
 
 type 'a t = 'a S.t
 
-let decode ?max_depth t s = Decode.run ?max_depth t s
+let decode ?max_depth ?max_problems t s =
+  Decode.run ?max_depth ?max_problems t s
+
 let encode = Encode.run
 let to_value = Decode.written
 let of_value t v = Decode.run t (Value.to_string v)

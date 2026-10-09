@@ -642,6 +642,95 @@ let nesting () =
     "and reads a scalar" true
     (Result.is_ok (J.decode ~max_depth:min_int J.Value.json "1"))
 
+(* However many problems a document has, what is said of them is bounded:
+   reading stops past the limit, and says it did. *)
+let many_problems () =
+  let bad n = "[" ^ String.concat "," (List.init n (fun _ -> {|"x"|})) ^ "]" in
+  let said ?max_problems shape text =
+    match J.decode ?max_problems shape text with
+    | Ok _ -> []
+    | Error ps ->
+        List.map (fun (p : P.t) -> (P.path p.at, P.code_to_string p.code)) ps
+  in
+  let items n =
+    List.init n (fun i -> (Printf.sprintf "[%d]" i, "unexpected_type"))
+  in
+  let more = ("", "too_many_problems") in
+  let body = bad 250_000 in
+  Alcotest.(check int) "a body of a megabyte" 1_000_001 (String.length body);
+  Alcotest.(check (list problem))
+    "a hundred, unless given, and one saying there were more"
+    (items 100 @ [ more ])
+    (said (J.list J.int) body);
+  Alcotest.(check (list problem))
+    "as many as given"
+    (items 3 @ [ more ])
+    (said ~max_problems:3 (J.list J.int) body);
+  Alcotest.(check (list problem))
+    "exactly as many is all of them" (items 3)
+    (said ~max_problems:3 (J.list J.int) (bad 3));
+  Alcotest.(check (list problem))
+    "none, and that there were some" [ more ]
+    (said ~max_problems:0 (J.list J.int) (bad 1));
+  Alcotest.(check (list problem))
+    "below none is none" [ more ]
+    (said ~max_problems:(-1) (J.list J.int) (bad 1));
+  Alcotest.(check (list problem))
+    "and none when there are none" []
+    (said ~max_problems:0 (J.list J.int) "[1]");
+  Alcotest.(check (list problem))
+    "past the limit, what follows is not read"
+    (items 2 @ [ more ])
+    (said ~max_problems:2 (J.list J.int) {|["x","x","x",nope]|});
+  let at = List.map (fun (p, c) -> ("items" ^ p, c)) in
+  let listed =
+    J.Object.Case.map "listed"
+      (J.Object.map Fun.id
+      |> J.Object.mem "items" (J.list J.int) ~enc:Fun.id
+      |> J.Object.finish)
+      ~dec:Fun.id
+  in
+  let union =
+    J.Object.map Fun.id
+    |> J.Object.case_mem "type" J.string ~enc:Fun.id
+         ~enc_case:(J.Object.Case.value listed)
+         [ J.Object.Case.make listed ]
+    |> J.Object.finish
+  in
+  Alcotest.(check (list problem))
+    "in a union's member, read after its tag"
+    (at (items 3) @ [ more ])
+    (said ~max_problems:3 union
+       ({|{"items":|} ^ bad 1000 ^ {|,"type":"listed"}|}));
+  let repeated n =
+    "{" ^ String.concat "," (List.init n (fun _ -> {|"x":1|})) ^ "}"
+  in
+  Alcotest.(check (list problem))
+    "in a member a union reads past, the first found"
+    [
+      ("z.x", "repeated_member");
+      ("z.x", "repeated_member");
+      ("z.x", "repeated_member");
+      more;
+    ]
+    (said ~max_problems:3
+       (J.Object.map Fun.id
+       |> J.Object.case_mem "type" J.string ~enc:Fun.id
+            ~enc_case:(J.Object.Case.value listed)
+            [ J.Object.Case.make listed ]
+       |> J.Object.error_unknown |> J.Object.finish)
+       ({|{"type":"listed","items":[],"z":|} ^ repeated 1000 ^ "}"));
+  let names n =
+    "{"
+    ^ String.concat "," (List.init n (fun i -> Printf.sprintf {|"a%d":1|} i))
+    ^ "}"
+  in
+  Alcotest.(check (list problem))
+    "in a map's names"
+    (List.init 3 (fun i -> (Printf.sprintf "a%d[name]" i, "malformed"))
+    @ [ more ])
+    (said ~max_problems:3 (J.dict (J.uuid ()) J.int) (names 1000))
+
 type colour = Black | White
 
 let colour =
@@ -775,7 +864,11 @@ let unions () =
     ^ "}"
   in
   let start = Sys.time () in
-  let found = List.length (problems many event) in
+  let found =
+    match J.decode ~max_problems:n event many with
+    | Ok _ -> 0
+    | Error ps -> List.length ps
+  in
   Alcotest.(check int) "every member nobody describes" n found;
   Alcotest.(check bool) "read in linear time" true (Sys.time () -. start < 1.)
 
@@ -2573,6 +2666,7 @@ let () =
           Alcotest.test_case "paths" `Quick paths;
           Alcotest.test_case "strings" `Quick strings;
           Alcotest.test_case "nesting" `Quick nesting;
+          Alcotest.test_case "many problems" `Quick many_problems;
         ] );
       ( "descriptions",
         [

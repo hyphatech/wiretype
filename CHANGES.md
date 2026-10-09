@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Breaking: `decode` lists at most a hundred problems, or as many as a new
+  `?max_problems` says; past it, reading stops and the list ends with one
+  problem of a new code, `too_many_problems` (`Problem.Too_many_problems`,
+  which a match on `Problem.code` wants a case for), at the document. A
+  body of a megabyte of wrong items was a quarter of a million problems.
 - Breaking: a `too_deep` problem is at no more than the first 16 segments
   of its path, its sentence saying how many levels below
   (`[0][0]...: This is nested more than 512 deep, 496 levels below

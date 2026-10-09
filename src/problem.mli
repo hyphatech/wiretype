@@ -1,6 +1,8 @@
 (** What is wrong with a document: where, a code a client branches on, and a
     sentence about that one place. Decoding reports every problem a document
-    has, but for a {!Syntax} or {!Too_deep} one, which is reported alone. *)
+    has, but for a {!Syntax} or {!Too_deep} one, which is reported alone, and
+    past its limit of problems, where it stops and ends the list with a
+    {!Too_many_problems}. *)
 
 type segment =
   | Member of string
@@ -28,6 +30,9 @@ type code =
       (** a member that an object which refuses unknown ones does not have *)
   | Repeated_member  (** a member given twice (RFC 7493 §2.3) *)
   | Malformed  (** a string its kind cannot read: a date, an id *)
+  | Too_many_problems
+      (** more than the limit: the last of the list, at the document, after the
+          first found; the rest of the text is not read *)
 
 val code_to_string : code -> string
 (** [required], [unexpected_type], ...: the word a client reads. *)
