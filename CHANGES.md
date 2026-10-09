@@ -30,6 +30,17 @@
   written `null` and read back as `None`. A member that tells a missing
   value from `null` is `mem ~absent` over a `nullable`: `[@default e]` on
   an `option` field.
+- Breaking: `nullable` and `Object.opt_mem` raise `Invalid_argument` over
+  any description that writes `null` for a value of its own -- a
+  `nullable` wherever it is (a list's item, a map's value, a member with
+  `~absent`), `null`, `Value.json`, an `any` that reads `null`, or a `map`
+  or `kind` over one -- since `None` and `Some` of that value were both
+  written `null`, and read back as `None`. A description of itself still
+  being made cannot be looked into, so `encode` refuses, as
+  `unspellable`, a `Some` it would write as `null`. The deriver refuses an
+  option of an option, or of `unit`, wherever it is written, a field with
+  `[@default e]` among them. A member that may hold any JSON is `mem
+  ~absent:Value.Null` over `Value.json`.
 
 - Breaking: a bound no value meets raises `Invalid_argument` where the
   description is built -- a least past its most in `int_bounded`,

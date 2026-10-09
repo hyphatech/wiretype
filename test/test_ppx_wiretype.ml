@@ -138,6 +138,38 @@ let () =
           Alcotest.test_case "an option of an option" `Quick
             (refused "type t = { a : int option option } [@@deriving wiretype]"
                "Some None would be written as null and read back as None");
+          Alcotest.test_case "an option of an option, with a default" `Quick
+            (refused
+               "type t = { a : int option option [@default None] } [@@deriving \
+                wiretype]"
+               "Some None would be written as null and read back as None");
+          Alcotest.test_case "an option of an option, wherever it is" `Quick
+            (fun () ->
+              List.iter
+                (fun source ->
+                  refused source
+                    "None and Some None would both be written as null; tell \
+                     them apart with a variant"
+                    ())
+                [
+                  "type t = int option option [@@deriving wiretype]";
+                  "type t = { a : int option option list } [@@deriving \
+                   wiretype]";
+                  "type t = { a : (string * int option option) list [@dict] } \
+                   [@@deriving wiretype]";
+                  "type t = int option option * int [@@deriving wiretype]";
+                  "type t = A of { a : int option option list } [@@deriving \
+                   wiretype]";
+                  "type t = { a : t option option list } [@@deriving wiretype]";
+                ]);
+          Alcotest.test_case "an option of unit" `Quick (fun () ->
+              refused "type t = { a : unit option } [@@deriving wiretype]"
+                "Some () would be written as null and read back as None; write \
+                 a bool"
+                ();
+              refused "type t = unit option list [@@deriving wiretype]"
+                "None and Some () would both be written as null; write a bool"
+                ());
           Alcotest.test_case "a member that is the tag" `Quick
             (refused
                "type t = A of { type_ : string } | B [@@deriving wiretype]"
@@ -258,6 +290,10 @@ let () =
             (accepted
                "type t = { a : string option; [@read_only] [@examples [ \"x\" \
                 ]] } [@@deriving wiretype]");
+          Alcotest.test_case "an option of a list of options" `Quick
+            (accepted
+               "type t = { a : int option list option; b : int option list } \
+                [@@deriving wiretype]");
           Alcotest.test_case "a deprecated member" `Quick
             (accepted
                "type t = { a : int; [@wiretype.deprecated] b : int } \

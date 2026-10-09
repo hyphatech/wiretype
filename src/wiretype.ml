@@ -199,7 +199,41 @@ let tuple4 a b c d =
     |> item d ~enc:(fun (_, _, _, d) -> d)
     |> finish)
 
-let nullable t = S.Nullable t
+(* Whether a description writes [null] for a value of its own, which an
+   option around it writes for [None] too. A description of itself is
+   looked into once, as [name] does: one still being made cannot be, nor
+   one reached again with nothing between, and for those the writer refuses
+   a value it would write [null] for Some instead. *)
+let writes_null t =
+  let rec writes : type a. inside:bool -> a t -> bool =
+   fun ~inside -> function
+     | S.Null _ | S.Nullable _ | S.Value -> true
+     | S.Any (_, a) -> Option.is_some a.null
+     | S.Map (_, m) -> writes ~inside m.inner
+     | S.Rec l -> (
+         (not inside)
+         &&
+         match Lazy.force l with
+         | t -> writes ~inside:true t
+         | exception Lazy.Undefined -> false)
+     | S.Bool | S.Int _ | S.Int64 _ | S.Number _ | S.String _ | S.Enum _
+     | S.List _ | S.Tuple _ | S.Dict _ | S.Object _ ->
+         false
+  in
+  writes ~inside:false t
+
+(* What a description is called in a refusal, which may be made inside a
+   description of itself that cannot yet be named. *)
+let spoken t = match name t with n -> n | exception Lazy.Undefined -> "it"
+
+let nullable t =
+  if writes_null t then
+    malformed "nullable"
+      "%s writes null for a value of its own, so None and Some of it would \
+       both be written as null; tell them apart with a variant"
+      (spoken t);
+  S.Nullable t
+
 let rec' l = S.Rec l
 
 let map ?kind ?doc ?dec ?enc inner =
@@ -319,16 +353,14 @@ module Object = struct
             } );
     }
 
-  let opt_mem (type a) ?(doc = "") ?enc ?(access = `Read_write)
-      ?(deprecated = false) ?(examples = []) name (shape : a S.t) m =
-    (match shape with
-    | S.Nullable _ ->
-        malformed "Object.opt_mem"
-          "the member %S is over a nullable, so Some None would be written as \
-           null and read back as None; describe it with mem ~absent and \
-           nullable"
-          name
-    | _ -> ());
+  let opt_mem ?(doc = "") ?enc ?(access = `Read_write) ?(deprecated = false)
+      ?(examples = []) name shape m =
+    if writes_null shape then
+      malformed "Object.opt_mem"
+        "the member %S is over %s, which writes null for a value of its own, \
+         so Some of it would be written as null and read back as None; \
+         describe it with mem ~absent over that description"
+        name (spoken shape);
     {
       m with
       fields =

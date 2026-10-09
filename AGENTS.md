@@ -93,15 +93,19 @@ Each rule comes with why it exists and the test that catches a break.
   length or count, a `multiple_of` that is not positive, two values with one
   word, a member described twice, two unions in one object, a case that is
   not an object, a member written by leaving it out that is read as
-  required, an `opt_mem` over a nullable -- since a description is a
-  constant written in source, and the mistake is found when the program
-  starts, never on a request. Each function's `.mli` says when it raises,
-  and the deriver refuses at compile time each of these it can see in the
-  type -- a name given twice, two constructors written alike, an option of
-  an option, a least and a most written as literals with no value between
+  required, a `nullable` or an `opt_mem` over what writes null for a value
+  of its own -- since a description is a constant written in source, and
+  the mistake is found when the program starts, never on a request. Each
+  function's `.mli` says when it raises, and the deriver refuses at compile
+  time each of these it can see in the type -- a name given twice, two
+  constructors written alike, an option of an option or of `unit` wherever
+  it is, a least and a most written as literals with no value between
   them, a case whose one argument is a scalar, a list, an option or a
   tuple -- leaving to the library only what it cannot: a case whose one
-  argument is a type named elsewhere that is no object.
+  argument is a type named elsewhere that is no object, an option of a
+  type named elsewhere that writes null (`Value.t`, an alias of an
+  option). A description of itself still being made cannot be looked
+  into, so `encode` refuses the `Some` it would write as null.
   Nothing else raises across the library's boundary. Test: `test_style`
   allows `invalid_arg` in `wiretype.ml` alone, and refuses any other;
   `test_wiretype`'s malformed descriptions; `test_ppx_wiretype`'s

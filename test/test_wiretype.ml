@@ -287,6 +287,90 @@ let absent_and_null () =
     [ ("n", "required") ]
     (problems "{}" nullable)
 
+(* What it writes, it reads, wherever an option nests: a null inside a list,
+   a map or an object is no null of the option around it, and a description
+   of itself still being made, which no check can look into, is refused
+   where a value of it would be written null for Some. *)
+type bush = Leaf | Node of bush option list
+
+let nested_options () =
+  let back name shape ~equal v =
+    Alcotest.(check bool)
+      name true
+      (match J.encode shape v with
+      | Ok s -> (
+          match J.decode shape s with Ok w -> equal v w | Error _ -> false)
+      | Error _ -> false)
+  in
+  let options = Option.equal Int.equal in
+  let opt shape =
+    J.Object.map Fun.id
+    |> J.Object.opt_mem "a" shape ~enc:Fun.id
+    |> J.Object.finish
+  in
+  back "an option in a list"
+    (J.list (J.nullable J.int))
+    ~equal:(List.equal options) [ None; Some 1 ];
+  back "an option of a list of options"
+    (J.nullable (J.list (J.nullable J.int)))
+    ~equal:(Option.equal (List.equal options))
+    (Some [ None ]);
+  back "an optional list of options"
+    (opt (J.list (J.nullable J.int)))
+    ~equal:(Option.equal (List.equal options))
+    (Some [ None ]);
+  back "an optional map of options"
+    (opt (J.dict J.string (J.nullable J.int)))
+    ~equal:
+      (Option.equal
+         (List.equal (fun (a, x) (b, y) -> String.equal a b && options x y)))
+    (Some [ ("a", None) ]);
+  back "an option of a value of sorts that is never null"
+    (J.nullable (J.any ~dec_number:J.int ~enc:(fun _ -> J.int) ()))
+    ~equal:options (Some 0);
+  back "any JSON, null when absent"
+    (J.Object.map Fun.id
+    |> J.Object.mem "a" ~absent:V.Null J.Value.json ~enc:Fun.id
+    |> J.Object.finish)
+    ~equal:V.equal V.Null;
+  (* Absent, null and a value, told apart: a member left out for None. *)
+  let three =
+    J.Object.map Fun.id
+    |> J.Object.mem "a" ~absent:None ~omit:Option.is_none
+         (J.map ~dec:Option.some ~enc:Option.join (J.nullable J.int))
+         ~enc:Fun.id
+    |> J.Object.finish
+  in
+  List.iter
+    (fun v ->
+      back "absent, null and a value" three ~equal:(Option.equal options) v)
+    [ None; Some None; Some (Some 1) ];
+  let bush_of l = Node l and of_bush = function Node l -> l | Leaf -> [] in
+  let rec bush =
+    lazy
+      (let array =
+         J.map ~dec:bush_of ~enc:of_bush (J.list (J.nullable (J.rec' bush)))
+       in
+       J.any ~dec_null:(J.null Leaf) ~dec_array:array
+         ~enc:(function Leaf -> J.null Leaf | Node _ -> array)
+         ())
+  in
+  back "a description of itself, where nothing is lost" (J.rec' bush)
+    ~equal:( = )
+    (Node [ None; Some (Node []) ]);
+  Alcotest.(check (result string string))
+    "and where Some would be written null"
+    (Error
+       "[0]: Some of this value would be written as null, which reads back as \
+        None. (unspellable)")
+    (written (J.rec' bush) (Node [ Some Leaf ]));
+  Alcotest.(check (result string string))
+    "as by an option of an option built as a shape"
+    (Error
+       "the value: Some of this value would be written as null, which reads \
+        back as None. (unspellable)")
+    (written J.Shape.(Nullable (Nullable J.int)) (Some None))
+
 let unknown () =
   let strict =
     J.Object.map (fun a -> a)
@@ -776,13 +860,59 @@ let malformed_descriptions () =
       |> J.Object.mem "a" J.int ~enc:Fun.id
       |> J.Object.opt_mem "a" J.int ~enc:Option.some
       |> J.Object.finish);
-  refused "an optional member over a nullable"
-    "Wiretype.Object.opt_mem: the member \"a\" is over a nullable, so Some \
-     None would be written as null and read back as None; describe it with mem \
-     ~absent and nullable" (fun () ->
+  let over what =
+    Printf.sprintf
+      "Wiretype.Object.opt_mem: the member \"a\" is over %s, which writes null \
+       for a value of its own, so Some of it would be written as null and read \
+       back as None; describe it with mem ~absent over that description"
+      what
+  and opt shape () =
+    J.Object.map Fun.id
+    |> J.Object.opt_mem "a" shape ~enc:Fun.id
+    |> J.Object.finish
+  in
+  let maybe = J.map ~kind:"maybe" ~dec:Fun.id ~enc:Fun.id (J.nullable J.int)
+  and cell =
+    J.any ~kind:"cell" ~dec_null:(J.null 0) ~dec_number:J.int
+      ~enc:(fun n -> if n = 0 then J.null 0 else J.int)
+      ()
+  in
+  refused "an optional member over a nullable" (over "integer or null")
+    (opt (J.nullable J.int));
+  refused "over null" (over "null") (opt (J.null ()));
+  refused "over any JSON, whose Null is null" (over "JSON") (opt J.Value.json);
+  refused "over a kind of a nullable" (over "maybe") (opt maybe);
+  refused "over a value of several sorts that reads null" (over "cell")
+    (opt cell);
+  let nested what =
+    Printf.sprintf
+      "Wiretype.nullable: %s writes null for a value of its own, so None and \
+       Some of it would both be written as null; tell them apart with a \
+       variant"
+      what
+  in
+  refused "an option of an option" (nested "integer or null") (fun () ->
+      J.nullable (J.nullable J.int));
+  refused "wherever it is: a list's item" (nested "integer or null") (fun () ->
+      J.list (J.nullable (J.nullable J.int)));
+  refused "a map's value" (nested "integer or null") (fun () ->
+      J.dict J.string (J.nullable (J.nullable J.int)));
+  refused "a member read as a default when absent" (nested "integer or null")
+    (fun () ->
       J.Object.map Fun.id
-      |> J.Object.opt_mem "a" (J.nullable J.int) ~enc:Fun.id
+      |> J.Object.mem "a" ~absent:None
+           (J.nullable (J.nullable J.int))
+           ~enc:Fun.id
       |> J.Object.finish);
+  refused "an option of null" (nested "null") (fun () -> J.nullable (J.null ()));
+  refused "of any JSON" (nested "JSON") (fun () -> J.nullable J.Value.json);
+  refused "of a kind of a nullable" (nested "maybe") (fun () ->
+      J.nullable maybe);
+  refused "of a value of several sorts that reads null" (nested "cell")
+    (fun () -> J.nullable cell);
+  let itself = lazy (J.nullable J.int) in
+  refused "of a description of itself that is one" (nested "integer or null")
+    (fun () -> J.nullable (J.rec' itself));
   refused "a member that is the union's tag"
     "Wiretype.Object.finish: the member \"t\" is described twice" (fun () ->
       J.Object.map (fun _ c -> c)
@@ -1597,6 +1727,173 @@ let descriptions_round_trip =
               Result.equal ~ok:String.equal ~error:String.equal (Ok s)
                 (written sample_json w)))
 
+(* Options nested every way the combinators allow: each description is
+   refused where it is built exactly where an option is over what writes
+   null for a value of its own, and reads back every value it writes
+   otherwise. *)
+type recipe =
+  | Int
+  | Unit
+  | Json
+  | Option of recipe
+  | List of recipe
+  | Map of recipe
+  | Optional of recipe  (** an [opt_mem] *)
+  | Defaulted of recipe  (** a [mem ~absent] *)
+  | Kind of recipe
+
+let rec recipe_to_string = function
+  | Int -> "int"
+  | Unit -> "unit"
+  | Json -> "json"
+  | Option r -> "option (" ^ recipe_to_string r ^ ")"
+  | List r -> "list (" ^ recipe_to_string r ^ ")"
+  | Map r -> "map (" ^ recipe_to_string r ^ ")"
+  | Optional r -> "opt_mem (" ^ recipe_to_string r ^ ")"
+  | Defaulted r -> "mem ~absent (" ^ recipe_to_string r ^ ")"
+  | Kind r -> "kind (" ^ recipe_to_string r ^ ")"
+
+let rec writes_null = function
+  | Unit | Json | Option _ -> true
+  | Kind r -> writes_null r
+  | Int | List _ | Map _ | Optional _ | Defaulted _ -> false
+
+let rec lossy = function
+  | Int | Unit | Json -> false
+  | Option r | Optional r -> writes_null r || lossy r
+  | List r | Map r | Defaulted r | Kind r -> lossy r
+
+type described =
+  | D : {
+      shape : 'a J.t;
+      gen : 'a QCheck.Gen.t;
+      equal : 'a -> 'a -> bool;
+    }
+      -> described
+
+let rec described =
+  let open QCheck.Gen in
+  let one obj = J.Object.(obj |> finish) in
+  function
+  | Int -> D { shape = J.int; gen = int_small; equal = Int.equal }
+  | Unit ->
+      D { shape = J.null (); gen = return (); equal = (fun () () -> true) }
+  | Json ->
+      D
+        {
+          shape = J.Value.json;
+          gen =
+            oneof_list
+              [
+                V.Null;
+                V.Bool true;
+                V.Number 1.;
+                V.String "a";
+                V.Array [ V.Null ];
+              ];
+          equal = V.equal;
+        }
+  | Option r ->
+      let (D d) = described r in
+      D
+        {
+          shape = J.nullable d.shape;
+          gen = option d.gen;
+          equal = Option.equal d.equal;
+        }
+  | List r ->
+      let (D d) = described r in
+      D
+        {
+          shape = J.list d.shape;
+          gen = list_size (int_bound 3) d.gen;
+          equal = List.equal d.equal;
+        }
+  | Map r ->
+      let (D d) = described r in
+      D
+        {
+          shape = J.dict J.string d.shape;
+          gen =
+            map
+              (List.mapi (fun i v -> ("k" ^ string_of_int i, v)))
+              (list_size (int_bound 3) d.gen);
+          equal =
+            List.equal (fun (a, x) (b, y) -> String.equal a b && d.equal x y);
+        }
+  | Optional r ->
+      let (D d) = described r in
+      D
+        {
+          shape =
+            one (J.Object.map Fun.id |> J.Object.opt_mem "a" d.shape ~enc:Fun.id);
+          gen = option d.gen;
+          equal = Option.equal d.equal;
+        }
+  | Defaulted r ->
+      let (D d) = described r in
+      let absent = generate1 ~rand:(Random.State.make [| 0 |]) d.gen in
+      D
+        {
+          shape =
+            one
+              (J.Object.map Fun.id
+              |> J.Object.mem "a" ~absent d.shape ~enc:Fun.id);
+          gen = d.gen;
+          equal = d.equal;
+        }
+  | Kind r ->
+      let (D d) = described r in
+      D
+        {
+          shape = J.map ~kind:"k" ~dec:Fun.id ~enc:Fun.id d.shape;
+          gen = d.gen;
+          equal = d.equal;
+        }
+
+let options_round_trip =
+  let open QCheck.Gen in
+  let recipe =
+    sized_size (int_bound 4)
+      (fix (fun self n ->
+           let leaf = oneof_list [ Int; Unit; Json ] in
+           if n = 0 then leaf
+           else
+             let inner = self (n - 1) in
+             oneof
+               [
+                 leaf;
+                 map (fun r -> Option r) inner;
+                 map (fun r -> List r) inner;
+                 map (fun r -> Map r) inner;
+                 map (fun r -> Optional r) inner;
+                 map (fun r -> Defaulted r) inner;
+                 map (fun r -> Kind r) inner;
+               ]))
+  in
+  QCheck.Test.make ~count:2000
+    ~name:
+      "an option, wherever it nests, reads back what it writes or is refused"
+    (QCheck.make ~print:(fun (r, _) -> recipe_to_string r) (pair recipe int))
+    (fun (r, seed) ->
+      match described r with
+      | exception Invalid_argument m ->
+          lossy r || QCheck.Test.fail_reportf "refused: %s" m
+      | D d ->
+          ((not (lossy r)) || QCheck.Test.fail_report "built")
+          && List.for_all
+               (fun v ->
+                 match J.encode d.shape v with
+                 | Error e -> QCheck.Test.fail_report (J.Unwritable.to_string e)
+                 | Ok s -> (
+                     match J.decode d.shape s with
+                     | Ok w ->
+                         d.equal v w
+                         || QCheck.Test.fail_reportf "%s read back otherwise" s
+                     | Error ps -> QCheck.Test.fail_report (P.list_to_string ps)
+                     ))
+               (generate ~rand:(Random.State.make [| seed |]) ~n:20 d.gen))
+
 (* A tuple is a JSON array of exactly its items, each by its own description:
    another length is the list's problem, a wrong item its own at its index. *)
 type waypoint = { at : int * int; label : string * float } [@@deriving wiretype]
@@ -2189,6 +2486,8 @@ let () =
         [
           Alcotest.test_case "every problem" `Quick every_problem;
           Alcotest.test_case "absent and null" `Quick absent_and_null;
+          Alcotest.test_case "options inside options" `Quick nested_options;
+          QCheck_alcotest.to_alcotest options_round_trip;
           Alcotest.test_case "unknown members" `Quick unknown;
           Alcotest.test_case "numbers" `Quick numbers;
           Alcotest.test_case "enums" `Quick enums;

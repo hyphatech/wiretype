@@ -4,17 +4,18 @@
 
     - A {b record} is an object named by the type (a [t] by its module), each
       field a member. An [option] field may be left out or [null]
-      ([Object.opt_mem]), and an [option option] one is refused, since
-      [Some None] would read back as [None]; [[@default e]] reads a missing
-      member as [e]; [[@key "k"]] names it on the wire; [[@with d]] describes it
-      by [d] -- the inner type's, on an [option]. [[@min]], [[@max]],
-      [[@multiple_of]] bound an [int], [int64] or [float], and [[@above]],
-      [[@below]] a [float]; [[@min_length]], [[@max_length]] a [string];
-      [[@min_items]], [[@max_items]] a [list]; a least and a most written as
-      literals with no value between them are refused. [[@read_only]] or
-      [[@write_only]], [[@wiretype.deprecated]] and [[@examples [...]]] are what
-      a document says of it, and a field's doc comment is its doc, as the type's
-      is the object's, the enum's or the union's.
+      ([Object.opt_mem]). An option of an option, or of [unit], is refused
+      wherever it is written -- a field, a list's item, a tuple's -- since
+      [None] and [Some None] would both be written [null]; [[@default e]] reads
+      a missing member as [e]; [[@key "k"]] names it on the wire; [[@with d]]
+      describes it by [d] -- the inner type's, on an [option]. [[@min]],
+      [[@max]], [[@multiple_of]] bound an [int], [int64] or [float], and
+      [[@above]], [[@below]] a [float]; [[@min_length]], [[@max_length]] a
+      [string]; [[@min_items]], [[@max_items]] a [list]; a least and a most
+      written as literals with no value between them are refused. [[@read_only]]
+      or [[@write_only]], [[@wiretype.deprecated]] and [[@examples [...]]] are
+      what a document says of it, and a field's doc comment is its doc, as the
+      type's is the object's, the enum's or the union's.
     - A {b variant} of constant constructors is an enum, a word per constructor:
       its name with the first letter lowered, or [[@name "w"]].
     - A {b variant} with arguments is a union on a tag -- ["type"], or

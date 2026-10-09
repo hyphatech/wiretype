@@ -97,7 +97,19 @@ let rec value : type a. Buffer.t -> path -> int -> a S.t -> a -> unit =
   | S.Nullable t -> (
       match v with
       | None -> Buffer.add_string b "null"
-      | Some x -> value b path depth t x)
+      | Some x ->
+          (* A description that writes null for a value of its own -- one of
+             itself, which could not be looked into where it was built --
+             would have the value read back as None. *)
+          let start = Buffer.length b in
+          value b path depth t x;
+          if
+            Buffer.length b - start = 4
+            && String.equal (Buffer.sub b start 4) "null"
+          then
+            fail path U.Unspellable
+              "Some of this value would be written as null, which reads back \
+               as None.")
   | S.Object (_, o) ->
       enter path depth;
       Buffer.add_char b '{';

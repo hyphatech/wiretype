@@ -36,11 +36,12 @@
 
     {b A description that can mean nothing} -- such as a bound no number meets,
     a [multiple_of] that is not positive, two values written as one word, a
-    member described twice, an object with two unions, or a member written by
-    leaving it out that is read as required -- raises [Invalid_argument] where
-    it is built, as each function below says: a description is a constant
-    written in source, so the mistake is found when the program starts, or in
-    its first test, and never on a request. *)
+    member described twice, an object with two unions, a member written by
+    leaving it out that is read as required, or an option of a description that
+    writes [null] for a value of its own -- raises [Invalid_argument] where it
+    is built, as each function below says: a description is a constant written
+    in source, so the mistake is found when the program starts, or in its first
+    test, and never on a request. *)
 
 (** Any JSON value, and its description. *)
 module Value : sig
@@ -71,10 +72,11 @@ val decode : ?max_depth:int -> 'a t -> string -> ('a, Problem.t list) result
 val encode : 'a t -> 'a -> (string, Unwritable.t) result
 (** [Error] is the first place that could not be written, and why: a description
     made only to read, a value its kind cannot spell -- a float that is not
-    finite, a value an enum has no word for, a case its union does not have --
-    or what would make a document {!decode} refuses: text that is not UTF-8, a
-    member or a map's name written twice, nesting past 512. What [encode]
-    writes, [decode] reads. *)
+    finite, a value an enum has no word for, a case its union does not have, a
+    [Some] that would be written [null] by a description of itself {!nullable}
+    could not look into -- or what would make a document {!decode} refuses: text
+    that is not UTF-8, a member or a map's name written twice, nesting past 512.
+    What [encode] writes, [decode] reads. *)
 
 val to_value : 'a t -> 'a -> (Value.t, Unwritable.t) result
 (** The value as the JSON {!encode} writes for it. *)
@@ -252,7 +254,12 @@ module Tuple : sig
 end
 
 val nullable : 'a t -> 'a option t
-(** The description, or [null] for [None]. *)
+(** The description, or [null] for [None]. Raises [Invalid_argument] where the
+    description writes [null] for a value of its own -- a {!nullable}, {!null},
+    {!Value.json}, an {!any} that reads [null], or a {!map} or {!kind} over one
+    -- since [None] and [Some] of that value would both be written [null]: a
+    variant tells them apart. A description of itself still being made, which it
+    cannot look into, is left to {!encode}, which refuses such a [Some]. *)
 
 val rec' : 'a t Lazy.t -> 'a t
 (** A description of itself. *)
@@ -340,9 +347,11 @@ module Object : sig
       clients write both for "nothing", and [None] is written by leaving it out.
       [access], [deprecated] and [examples] are {!mem}'s; an example is a value
       the member holds when it is there. Raises [Invalid_argument] where the
-      description is a {!nullable}, whose [Some None] would be written [null]
-      and read back as [None]: {!mem} with [~absent] over a {!nullable} reads a
-      missing member as one value and [null] as [None]. *)
+      description writes [null] for a value of its own, as {!nullable} says,
+      since [Some] of it would be written [null] and read back as [None]: {!mem}
+      with [~absent] over that description reads a missing member as one value
+      and [null] as its own -- [~absent:None] over a {!nullable},
+      [~absent:Value.Null] over {!Value.json}. *)
 
   val case_mem :
     ?doc:string ->

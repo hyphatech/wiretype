@@ -531,9 +531,9 @@ let test_each_is_said () =
       "z.int().check(z.gte(-5), z.lte(5))" )
     (printed (Wiretype.int64_bounded ~min:(-5L) ~max:5L ()));
   Alcotest.(check (pair string string))
-    "an option of an option is one"
+    "an option of an option, built as a shape, is one"
     ({|{"anyOf":[{"type":"integer"},{"type":"null"}]}|}, "z.nullable(z.int())")
-    (printed Wiretype.(nullable (nullable int)));
+    (printed Wiretype.Shape.(Nullable (Nullable Wiretype.int)));
   let account =
     Wiretype.Object.map (fun a b -> (a, b))
     |> Wiretype.Object.mem "old" Wiretype.int ~deprecated:true ~doc:"gone"

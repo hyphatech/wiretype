@@ -319,6 +319,18 @@ type env = {
    bound to something else where it is derived. *)
 let pipe ~loc acc e = B.pexp_apply ~loc e [ (Nolabel, acc) ]
 
+(* An inner type that writes [null] for a value of its own, which an option
+   around it writes for [None] too. What is described [[@with d]] is [d]'s
+   to say. *)
+type null_inside = Option_inside | Unit_inside
+
+let null_inside (ct : core_type) =
+  match ct.ptyp_desc with
+  | _ when Option.is_some (Attribute.get A.ct_with ct) -> None
+  | Ptyp_constr ({ txt = Lident "option"; _ }, [ _ ]) -> Some Option_inside
+  | Ptyp_constr ({ txt = Lident "unit"; _ }, []) -> Some Unit_inside
+  | _ -> None
+
 let rec desc env (ct : core_type) =
   let loc = ct.ptyp_loc in
   match Attribute.get A.ct_with ct with
@@ -339,8 +351,17 @@ let rec desc env (ct : core_type) =
           [%expr
             Wiretype.map ~dec:Stdlib.Array.of_list ~enc:Stdlib.Array.to_list
               (Wiretype.list [%e desc env a])]
-      | Ptyp_constr ({ txt = Lident "option"; _ }, [ a ]) ->
-          [%expr Wiretype.nullable [%e desc env a]]
+      | Ptyp_constr ({ txt = Lident "option"; _ }, [ a ]) -> (
+          match null_inside a with
+          | Some Option_inside ->
+              Location.raise_errorf ~loc
+                "wiretype: None and Some None would both be written as null; \
+                 tell them apart with a variant"
+          | Some Unit_inside ->
+              Location.raise_errorf ~loc
+                "wiretype: None and Some () would both be written as null; \
+                 write a bool"
+          | None -> [%expr Wiretype.nullable [%e desc env a]])
       | Ptyp_constr ({ txt = Lident n; _ }, args)
         when env.recursive && List.mem n env.group ->
           (* A type of the group is not yet defined where it is referred to:
@@ -633,12 +654,16 @@ let member env (f : field) ~enc =
   let enc = labelled "enc" enc in
   let name = (Nolabel, B.estring ~loc f.wire) in
   match (is_option ld.pld_type, Attribute.get A.default ld) with
-  | Some inner, None when Option.is_some (is_option inner) ->
+  | Some inner, _ when Option.is_some (is_option inner) ->
       Location.raise_errorf ~loc
         "wiretype: an option of an option may be left out, but Some None would \
          be written as null and read back as None; write the inner option \
          alone with [@default e], which reads a missing member as e and null \
          as None"
+  | Some inner, None when Option.is_some (null_inside inner) ->
+      Location.raise_errorf ~loc
+        "wiretype: a unit option may be left out, but Some () would be written \
+         as null and read back as None; write a bool"
   | Some inner, None ->
       let d = field_desc env ~target:inner ld in
       let examples =

@@ -334,8 +334,9 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
           max_properties = d.max_properties;
         }
   | S.Nullable t ->
-      (* [null] once, however many options say it, and a doc around both,
-         since it is the doc of whatever the value is. *)
+      (* [null] once, though a shape built directly nests one option in
+         another, and a doc around both, since it is the doc of whatever the
+         value is. *)
       let rec nullable = function
         | Nullable _ as s -> s
         | Described d -> Described { d with schema = nullable d.schema }

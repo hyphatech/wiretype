@@ -110,7 +110,10 @@ walk it too.
   writes `None` by leaving the member out; `mem ~absent` gives a default.
 - **What it writes, it reads**: text that is not UTF-8, a member written
   twice or nesting past 512 is refused on writing, at its path with a
-  code (`J.Unwritable`), as a kind's value it cannot spell is.
+  code (`J.Unwritable`), as a kind's value it cannot spell is. An option
+  of what already writes `null` -- an option of an option, of `J.null`,
+  of any JSON -- is refused where it is built, since `None` and `Some`
+  would be written alike.
 
 ## Kinds
 
