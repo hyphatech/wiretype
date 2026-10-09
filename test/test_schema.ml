@@ -667,6 +667,206 @@ let test_a_component_is_walked_once () =
   Alcotest.(check bool) "at once" true (Sys.time () -. start < 0.5)
 
 (* ------------------------------------------------------------------ *)
+(* Docs *)
+
+(* A doc is the schema's whatever it is given to: an enum, a kind, a map, a
+   value of several sorts and a union each, as an object and a member are. *)
+let dot =
+  Wiretype.Object.Case.map "dot"
+    (Wiretype.Object.map () |> Wiretype.Object.finish)
+    ~dec:Fun.id
+
+let test_a_doc_is_said_of_every_shape () =
+  let printed ?(dir = S.Encode) description =
+    let _, root = walked ~dir description in
+    (V.to_string (S.Json_schema.of_t root), S.Zod.of_t root)
+  in
+  let level =
+    Wiretype.enum ~doc:"How much it says."
+      (function Debug -> "debug" | Info -> "info")
+      [ Debug; Info ]
+  in
+  Alcotest.(check (pair string string))
+    "an enum's"
+    ( {|{"type":"string","enum":["debug","info"],"description":"How much it says."}|},
+      {|z.enum(["debug", "info"])|} )
+    (printed level);
+  Alcotest.(check (pair string string))
+    "a kind's"
+    ( {|{"type":"string","format":"date","description":"A day of the shop's."}|},
+      "z.iso.date()" )
+    (printed
+       (Wiretype.kind ~name:"day" ~doc:"A day of the shop's."
+          ~format:Wiretype.Shape.Date ~parse:Result.ok ~print:Fun.id
+          Wiretype.string));
+  let cents =
+    Wiretype.map ~doc:"In cents." ~dec:Fun.id ~enc:Fun.id Wiretype.int
+  in
+  Alcotest.(check (pair string string))
+    "a map's"
+    ({|{"type":"integer","description":"In cents."}|}, "z.int()")
+    (printed cents);
+  Alcotest.(check (pair string string))
+    "a value of several sorts'"
+    ( {|{"anyOf":[{"type":"boolean"},{"type":"number"}],"description":"A flag or a count."}|},
+      "z.union([z.boolean(), z.number()])" )
+    (printed
+       (Wiretype.any ~doc:"A flag or a count."
+          ~dec_bool:
+            (Wiretype.map ~dec:(fun _ -> 0.) ~enc:(fun _ -> true) Wiretype.bool)
+          ~dec_number:Wiretype.number
+          ~enc:(fun _ -> Wiretype.number)
+          ()));
+  Alcotest.(check (pair string string))
+    "an item's, in JSON Schema alone, since no comment stands inside an \
+     expression"
+    ( {|{"type":"array","items":{"type":"integer","description":"In cents."}}|},
+      "z.array(z.int())" )
+    (printed (Wiretype.list cents));
+  Alcotest.(check (pair string string))
+    "a nullable's, beside its null"
+    ( {|{"anyOf":[{"type":"integer"},{"type":"null"}],"description":"In cents."}|},
+      "z.nullable(z.int())" )
+    (printed (Wiretype.nullable cents));
+  Alcotest.(check (pair string string))
+    "a map's keys, still text"
+    ( {|{"type":"object","additionalProperties":{"type":"integer"},"propertyNames":{"type":"string","enum":["debug","info"],"description":"How much it says."}}|},
+      {|z.partialRecord(z.enum(["debug", "info"]), z.int())|} )
+    (printed (Wiretype.dict level Wiretype.int));
+  let priced =
+    Wiretype.Object.map ~kind:"priced" (fun price level -> (price, level))
+    |> Wiretype.Object.mem "price" cents ~enc:fst
+    |> Wiretype.Object.opt_mem "level" level ~enc:snd
+    |> Wiretype.Object.finish
+  in
+  List.iter
+    (fun (dir, name) ->
+      let ctx, root = walked ~dir priced in
+      let doc = S.Json_schema.document (S.components ctx) root in
+      Alcotest.(check (list string))
+        "a member's, from its shape"
+        [ "In cents."; "How much it says." ]
+        (List.map
+           (fun m ->
+             str (member [ "$defs"; name; "properties"; m; "description" ] doc))
+           [ "price"; "level" ]);
+      let ts = S.Zod.components (S.components ctx) in
+      List.iter
+        (fun sub -> Alcotest.(check bool) sub true (contains ~sub ts))
+        [
+          "  /** In cents. */\n  price: z.int(),";
+          "  /** How much it says. */\n  level: z.optional(";
+        ])
+    [ (S.Encode, "Priced"); (S.Decode, "PricedInput") ];
+  let ctx, root =
+    walked
+      (Wiretype.Object.map ~kind:"shape" ~doc:"Something drawn." Fun.id
+      |> Wiretype.Object.case_mem "kind" Wiretype.string ~enc:Fun.id
+           ~enc_case:(fun () -> Wiretype.Object.Case.value dot ())
+           [ Wiretype.Object.Case.make dot ]
+      |> Wiretype.Object.finish)
+  in
+  let doc = S.Json_schema.document (S.components ctx) root in
+  Alcotest.(check string)
+    "a union's" "Something drawn."
+    (str (member [ "$defs"; "Shape"; "description" ] doc));
+  Alcotest.(check bool)
+    "and in zod, on its declaration" true
+    (contains ~sub:"/** Something drawn. */\nexport const ShapeSchema ="
+       (S.Zod.components (S.components ctx)))
+
+(* A member's doc is the one its property says: a shape's doc is the
+   shape's, and a member's says what the shape is there, so it wins where
+   both would be one [description]. A component keeps its own. *)
+let test_a_members_doc_wins () =
+  let level =
+    Wiretype.enum ~doc:"How much it says."
+      (function Debug -> "debug" | Info -> "info")
+      [ Debug; Info ]
+  in
+  let inner =
+    Wiretype.Object.map ~kind:"inner" ~doc:"What is inside." Fun.id
+    |> Wiretype.Object.mem "a" Wiretype.int ~enc:Fun.id
+    |> Wiretype.Object.finish
+  in
+  let unnamed =
+    Wiretype.Object.map ~doc:"Nothing named." Fun.id
+    |> Wiretype.Object.mem "b" Wiretype.int ~enc:Fun.id
+    |> Wiretype.Object.finish
+  in
+  let outer =
+    Wiretype.Object.map ~kind:"outer" (fun a b c -> (a, b, c))
+    |> Wiretype.Object.mem "level" level ~doc:"How loud the log is."
+         ~enc:(fun (a, _, _) -> a)
+    |> Wiretype.Object.mem "inner" inner ~doc:"The one inside."
+         ~enc:(fun (_, b, _) -> b)
+    |> Wiretype.Object.mem "unnamed" unnamed ~doc:"The plain one."
+         ~enc:(fun (_, _, c) -> c)
+    |> Wiretype.Object.finish
+  in
+  let ctx, root = walked outer in
+  let doc = S.Json_schema.document (S.components ctx) root in
+  let props = member [ "$defs"; "Outer"; "properties" ] doc in
+  Alcotest.(check string)
+    "the member's, once"
+    {|{"type":"string","enum":["debug","info"],"description":"How loud the log is."}|}
+    (V.to_string (member [ "level" ] props));
+  Alcotest.(check string)
+    "beside a reference"
+    {|{"$ref":"#/$defs/Inner","description":"The one inside."}|}
+    (V.to_string (member [ "inner" ] props));
+  Alcotest.(check string)
+    "over an object's own, once" "The plain one."
+    (str (member [ "unnamed"; "description" ] props));
+  Alcotest.(check int)
+    "and no other" 1
+    (match member [ "unnamed" ] props with
+    | V.Object fields ->
+        List.length
+          (List.filter (fun (k, _) -> String.equal k "description") fields)
+    | _ -> 0);
+  Alcotest.(check string)
+    "while the component keeps its own" "What is inside."
+    (str (member [ "$defs"; "Inner"; "description" ] doc));
+  let ts = S.Zod.components (S.components ctx) in
+  List.iter
+    (fun (sub, there) -> Alcotest.(check bool) sub there (contains ~sub ts))
+    [
+      ("  /** How loud the log is. */\n  level:", true);
+      ("How much it says.", false);
+      ("/** What is inside. */\nexport const InnerSchema", true);
+    ]
+
+(* A ready-made kind's [format] says what it is, and a sentence of the
+   library's would be printed into every schema that uses one; its doc is the
+   one its user gives. *)
+let test_a_ready_made_kind_says_no_doc () =
+  let json description =
+    let _, root = walked description in
+    V.to_string (S.Json_schema.of_t root)
+  in
+  List.iter
+    (fun (name, said) ->
+      Alcotest.(check bool) name false (contains ~sub:"description" said))
+    [
+      ("an instant", json Wiretype.instant);
+      ("a date", json Wiretype.date);
+      ("a duration", json Wiretype.duration);
+      ("a uuid", json (Wiretype.uuid ()));
+      ("base64", json Wiretype.base64);
+      ("base64url", json Wiretype.base64url);
+      ("a uri", json Wiretype.uri);
+      ("an ipv4", json Wiretype.ipv4);
+      ("an ipv6", json Wiretype.ipv6);
+    ];
+  Alcotest.(check string)
+    "and one its user gives, as any"
+    {|{"type":"string","format":"date-time","description":"When it opens."}|}
+    (json
+       (Wiretype.map ~doc:"When it opens." ~dec:Fun.id ~enc:Fun.id
+          Wiretype.instant))
+
+(* ------------------------------------------------------------------ *)
 (* zod *)
 
 let test_zod_says_the_same () =
@@ -727,6 +927,15 @@ let () =
             test_a_kind_is_compared_whole;
           Alcotest.test_case "a component is walked once" `Quick
             test_a_component_is_walked_once;
+        ] );
+      ( "docs",
+        [
+          Alcotest.test_case "a doc is said of every shape" `Quick
+            test_a_doc_is_said_of_every_shape;
+          Alcotest.test_case "a member's doc wins" `Quick
+            test_a_members_doc_wins;
+          Alcotest.test_case "a ready-made kind says no doc" `Quick
+            test_a_ready_made_kind_says_no_doc;
         ] );
       ( "zod",
         [ Alcotest.test_case "zod says the same" `Quick test_zod_says_the_same ]

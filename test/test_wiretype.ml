@@ -1271,6 +1271,12 @@ type placed = {
 
 type side = Black_side | White_side | Not_a_side [@@deriving wiretype]
 
+(** Which way it faces. *)
+type facing = North | South [@@deriving wiretype]
+
+(** A turn taken. *)
+type steer = Left of { degrees : int } | Back [@@deriving wiretype]
+
 type order =
   | Find of { rank : int; minutes : int option }
   | Cancel of { id : string }
@@ -1423,7 +1429,21 @@ let derived_schema () =
   let side = J.Schema.walk ctx J.Schema.Encode ~at:"side" side_json in
   Alcotest.(check string)
     "an enum's words" {|z.enum(["black_side", "white_side", "not_a_side"])|}
-    (J.Schema.Zod.of_t side)
+    (J.Schema.Zod.of_t side);
+  let ctx = J.Schema.create () in
+  let facing = J.Schema.walk ctx J.Schema.Encode ~at:"facing" facing_json in
+  Alcotest.(check string)
+    "an enum's doc comment"
+    {|{"type":"string","enum":["north","south"],"description":"Which way it faces."}|}
+    (V.to_string (J.Schema.Json_schema.of_t facing));
+  let ctx = J.Schema.create () in
+  let steer = J.Schema.walk ctx J.Schema.Encode ~at:"steer" steer_json in
+  Alcotest.(check bool)
+    "a union's" true
+    (contains
+       (V.to_string
+          (J.Schema.Json_schema.document (J.Schema.components ctx) steer))
+       {|"description":"A turn taken."|})
 
 (* An option is described as any member is: read-only, with examples. Any
    JSON is described by [Value.json], through whatever alias names it, and an

@@ -136,7 +136,9 @@ read-only, write-only, or an `opt_mem` a request may give as `null`, and
 the request's is then
 `<Name>Input`, whatever else is walked. An object that refuses members it
 does not describe says so in both. Bounds -- ranges, `multiple_of`,
-lengths, counts -- are in both.
+lengths, counts -- are in both. So is a doc, wherever it is given -- an
+object, a member, an enum, a kind, a map, a union: JSON Schema's
+`description`, and zod's comment where a comment can stand.
 
 What a walk could not make right is in `Schema.errors` -- two different
 descriptions under one kind, a map keyed by what is no text -- and a

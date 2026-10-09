@@ -53,6 +53,13 @@ type t =
       absent : Value.t option;
       cases : (Value.t * obj) list;
     }
+  | Described of { doc : string; schema : t }
+      (** a shape with the doc it was given, where nothing else holds it -- an
+          enum's, a kind's, a map's, a value of several sorts', a union's. JSON
+          Schema says it as the subschema's [description], over any the schema
+          has of its own; zod as the comment on the declaration or the member it
+          stands for, an item's being JSON Schema's alone. A member's own doc
+          wins over it on the member's property. *)
 
 and obj = { about : string; props : prop list; additional : additional }
 

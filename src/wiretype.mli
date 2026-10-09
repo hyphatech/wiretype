@@ -152,28 +152,31 @@ val enum : ?kind:string -> ?doc:string -> ('a -> string) -> 'a list -> 'a t
 
     Each over a plain OCaml type, so no library's type is in an application's
     API; each with its schema's [format] and its zod check, and accepting no
-    string that check refuses. *)
+    string that check refuses. What each is, its [format] says, so a schema
+    prints no [description] of the library's for it: a doc is its user's, a
+    member's or one {!map} gives around the kind. *)
 
 val instant : int t
-(** Epoch milliseconds, as RFC 3339 [date-time]: [2026-09-30T12:00:00.000Z],
-    read with any fraction and offset -- a fraction past the millisecond is
-    dropped -- and written in UTC with milliseconds, so one instant has one
-    spelling. A leap second is refused, and so is an instant that is outside the
-    years 0000 to 9999 once in UTC -- [9999-12-31T23:59:59-01:00] -- since it
-    could not be written back. *)
+(** An instant, in epoch milliseconds, as RFC 3339 [date-time]:
+    [2026-09-30T12:00:00.000Z], read with any fraction and offset -- a fraction
+    past the millisecond is dropped -- and written in UTC with milliseconds, so
+    one instant has one spelling. A leap second is refused, and so is an instant
+    that is outside the years 0000 to 9999 once in UTC --
+    [9999-12-31T23:59:59-01:00] -- since it could not be written back. *)
 
 val date : (int * int * int) t
-(** [(year, month, day)], as RFC 3339 [full-date]: [2026-09-30]. *)
+(** A date, [(year, month, day)], as RFC 3339 [full-date]: [2026-09-30]. *)
 
 val duration : int t
-(** Milliseconds, as ISO 8601: [PT1H30M]. Weeks, or days, hours, minutes and
-    seconds; never years or months, which are no number of milliseconds. A day
-    is 24 hours, and one past a hundred thousand years is refused. *)
+(** A duration, in milliseconds, as ISO 8601: [PT1H30M]. Weeks, or days, hours,
+    minutes and seconds; never years or months, which are no number of
+    milliseconds. A day is 24 hours, and one past a hundred thousand years is
+    refused. *)
 
 val uuid : ?version:Shape.uuid_version -> unit -> string t
-(** RFC 9562, lower-cased: versions 1 to 8, with the nil and the max UUID, or
-    the one version asked for. The max UUID is read in lower case alone, as zod
-    reads it. *)
+(** A UUID, as RFC 9562 writes one, lower-cased: versions 1 to 8, with the nil
+    and the max UUID, or the one version asked for. The max UUID is read in
+    lower case alone, as zod reads it. *)
 
 val base64 : string t
 (** Bytes, as RFC 4648 §4's padded base64. *)
@@ -182,25 +185,27 @@ val base64url : string t
 (** Bytes, as RFC 4648 §5's unpadded base64url. *)
 
 val uri : string t
-(** RFC 3986, less what the URL standard refuses: a port past 65535, an
-    [IPvFuture] host, an empty host after userinfo or before a port, an [http],
-    [https], [ws], [wss] or [ftp] URI with no host or a host that is not a
-    domain or an address, and a [file] URI with userinfo, a port, or a host that
-    is not empty, a domain or an address. An [xn--] label is decoded as Punycode
-    and held to UTS #46 as the URL standard applies it, with Unicode 15.0.0's
-    tables, the bidi rule of RFC 5893 across the host included. It is refused,
-    where a browser might take it, when it holds a joiner or a code point that
-    may not be in NFC, since both need a context or a normalisation the tables
-    alone cannot check, when it is longer than the 63 octets DNS allows a label,
-    or when it decodes to nothing but ASCII or to another [xn--]. *)
+(** A URI, as RFC 3986 writes one, less what the URL standard refuses: a port
+    past 65535, an [IPvFuture] host, an empty host after userinfo or before a
+    port, an [http], [https], [ws], [wss] or [ftp] URI with no host or a host
+    that is not a domain or an address, and a [file] URI with userinfo, a port,
+    or a host that is not empty, a domain or an address. An [xn--] label is
+    decoded as Punycode and held to UTS #46 as the URL standard applies it, with
+    Unicode 15.0.0's tables, the bidi rule of RFC 5893 across the host included.
+    It is refused, where a browser might take it, when it holds a joiner or a
+    code point that may not be in NFC, since both need a context or a
+    normalisation the tables alone cannot check, when it is longer than the 63
+    octets DNS allows a label, or when it decodes to nothing but ASCII or to
+    another [xn--]. *)
 
 val ipv4 : string t
-(** Dotted decimal: four numbers to 255, none with a leading zero. *)
+(** An IPv4 address, in dotted decimal: four numbers to 255, none with a leading
+    zero. *)
 
 val ipv6 : string t
-(** RFC 4291 §2.2's full and compressed forms, with a dotted IPv4 address in the
-    last thirty-two bits, kept as written: [FE80::1] stays in upper case. A zone
-    ([%eth0]) is no part of an address, and is refused. *)
+(** An IPv6 address, in RFC 4291 §2.2's full and compressed forms, with a dotted
+    IPv4 address in the last thirty-two bits, kept as written: [FE80::1] stays
+    in upper case. A zone ([%eth0]) is no part of an address, and is refused. *)
 
 (** {1 Descriptions of descriptions} *)
 

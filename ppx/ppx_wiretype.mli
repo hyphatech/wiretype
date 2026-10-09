@@ -14,7 +14,7 @@
       literals with no value between them are refused. [[@read_only]] or
       [[@write_only]], [[@wiretype.deprecated]] and [[@examples [...]]] are what
       a document says of it, and a field's doc comment is its doc, as the type's
-      is the object's.
+      is the object's, the enum's or the union's.
     - A {b variant} of constant constructors is an enum, a word per constructor:
       its name with the first letter lowered, or [[@name "w"]].
     - A {b variant} with arguments is a union on a tag -- ["type"], or

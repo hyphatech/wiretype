@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Breaking: the doc of an enum, a kind, a map, a value of several sorts
+  (`any`) and a union is in the schema, as an object's and a member's
+  were: JSON Schema's `description` on its subschema, and zod's comment
+  on the declaration or member it stands for. A derived enum's or
+  union's doc comment is so too. `Schema.t` has a new constructor,
+  `Described`, which wraps a shape with its doc; a match on `Schema.t`
+  wants a case for it. A member's doc wins over its shape's on its
+  property, which held two `description`s where the member's shape was an
+  object with a doc and no kind. The ready-made kinds print no doc of
+  their own, since their `format` says what they are.
 - Breaking: OCaml 5.5 or later is required. The opam files asked for 5.4,
   which CI tested and nothing else did; every switch the code is written
   in is 5.5.

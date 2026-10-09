@@ -236,10 +236,11 @@ let any ?kind ?doc ?dec_null ?dec_bool ?dec_number ?dec_string ?dec_array
         pick = enc;
       } )
 
-(* A kind whose writing can fail as well as its reading. *)
-let grammar ~name ~doc format ~parse ~print =
+(* A kind whose writing can fail as well as its reading. Its [format] says
+   what it is, so its doc is left to its user. *)
+let grammar ~name format ~parse ~print =
   S.Map
-    ( about ~kind:name ~doc (),
+    ( about ~kind:name (),
       {
         format = Some format;
         inner = string;
@@ -248,43 +249,41 @@ let grammar ~name ~doc format ~parse ~print =
       } )
 
 let instant =
-  grammar ~name:"instant" ~doc:"An instant, as RFC 3339 writes one." S.Date_time
-    ~parse:Grammar.instant_of_string ~print:Grammar.instant_to_string
+  grammar ~name:"instant" S.Date_time ~parse:Grammar.instant_of_string
+    ~print:Grammar.instant_to_string
 
 let date =
-  grammar ~name:"date" ~doc:"A date, as YYYY-MM-DD." S.Date
-    ~parse:Grammar.date_of_string ~print:Grammar.date_to_string
+  grammar ~name:"date" S.Date ~parse:Grammar.date_of_string
+    ~print:Grammar.date_to_string
 
 let duration =
-  grammar ~name:"duration" ~doc:"A duration, as ISO 8601 writes one." S.Duration
-    ~parse:Grammar.duration_of_string ~print:Grammar.duration_to_string
+  grammar ~name:"duration" S.Duration ~parse:Grammar.duration_of_string
+    ~print:Grammar.duration_to_string
 
 let uuid ?version () =
-  grammar ~name:"uuid" ~doc:"A UUID." (S.Uuid version)
-    ~parse:(Grammar.uuid_of_string ?version) ~print:(fun s ->
-      Grammar.uuid_of_string ?version s)
+  grammar ~name:"uuid" (S.Uuid version) ~parse:(Grammar.uuid_of_string ?version)
+    ~print:(fun s -> Grammar.uuid_of_string ?version s)
 
 let base64 =
-  grammar ~name:"base64" ~doc:"Bytes, in base64." S.Base64
-    ~parse:(Grammar.base64_of_string ~url:false) ~print:(fun b ->
-      Ok (Grammar.base64_to_string ~url:false b))
+  grammar ~name:"base64" S.Base64 ~parse:(Grammar.base64_of_string ~url:false)
+    ~print:(fun b -> Ok (Grammar.base64_to_string ~url:false b))
 
 let base64url =
-  grammar ~name:"base64url" ~doc:"Bytes, in base64url." S.Base64url
+  grammar ~name:"base64url" S.Base64url
     ~parse:(Grammar.base64_of_string ~url:true) ~print:(fun b ->
       Ok (Grammar.base64_to_string ~url:true b))
 
 let uri =
-  grammar ~name:"uri" ~doc:"A URI." S.Uri ~parse:Grammar.uri_of_string
+  grammar ~name:"uri" S.Uri ~parse:Grammar.uri_of_string
     ~print:Grammar.uri_of_string
 
 let ipv4 =
-  grammar ~name:"ipv4" ~doc:"An IPv4 address." S.Ipv4
-    ~parse:Grammar.ipv4_of_string ~print:Grammar.ipv4_of_string
+  grammar ~name:"ipv4" S.Ipv4 ~parse:Grammar.ipv4_of_string
+    ~print:Grammar.ipv4_of_string
 
 let ipv6 =
-  grammar ~name:"ipv6" ~doc:"An IPv6 address." S.Ipv6
-    ~parse:Grammar.ipv6_of_string ~print:Grammar.ipv6_of_string
+  grammar ~name:"ipv6" S.Ipv6 ~parse:Grammar.ipv6_of_string
+    ~print:Grammar.ipv6_of_string
 
 module Object = struct
   type ('o, 'dec) map = {

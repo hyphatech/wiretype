@@ -41,6 +41,7 @@ type t =
       absent : Value.t option;
       cases : (Value.t * obj) list;
     }
+  | Described of { doc : string; schema : t }
 
 and obj = { about : string; props : prop list; additional : additional }
 and additional = Allowed | Refused | Each of t
@@ -139,6 +140,8 @@ let rec equal a b =
   | Object a, Object b -> obj_equal a b
   | Ref a, Ref b -> String.equal a b
   | Nullable a, Nullable b -> equal a b
+  | Described a, Described b ->
+      String.equal a.doc b.doc && equal a.schema b.schema
   | Tagged a, Tagged b ->
       String.equal a.tag b.tag
       && Option.equal Value.equal a.absent b.absent
@@ -146,7 +149,8 @@ let rec equal a b =
            (fun (v, o) (w, p) -> Value.equal v w && obj_equal o p)
            a.cases b.cases
   | ( ( Any | Null | Boolean | Number _ | Integer _ | String _ | Array _
-      | Tuple _ | Dict _ | Object _ | Ref _ | Nullable _ | Union _ | Tagged _ ),
+      | Tuple _ | Dict _ | Object _ | Ref _ | Nullable _ | Union _ | Tagged _
+      | Described _ ),
       _ ) ->
       false
 
@@ -177,6 +181,13 @@ let name_of_kind kind =
                   | ('a' .. 'z' | 'A' .. 'Z' | '0' .. '9') as c -> c | _ -> ' ')
                 kind))))
 
+(* A shape's doc, around the schema it is the doc of. *)
+let described (about : S.about) schema =
+  if String.equal about.doc "" then schema
+  else Described { doc = about.doc; schema }
+
+(* What a schema is, under the doc around it. *)
+let rec undescribed = function Described d -> undescribed d.schema | s -> s
 let report ctx at what = ctx.loose <- (at ^ ": " ^ what) :: ctx.loose
 
 let error ctx at code message =
@@ -298,7 +309,8 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
         }
   | S.String l ->
       String { text with min_length = l.min_length; max_length = l.max_length }
-  | S.Enum (_, e) -> String { text with words = Some (List.map fst e.words) }
+  | S.Enum (about, e) ->
+      described about (String { text with words = Some (List.map fst e.words) })
   | S.List l ->
       Array
         {
@@ -309,7 +321,7 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
   | S.Tuple items -> Tuple (tuple_items ctx dir at depth items)
   | S.Dict d ->
       let keys = walk_ ctx dir (at ^ "[name]") depth d.key in
-      (match keys with
+      (match undescribed keys with
       | String _ -> ()
       | _ ->
           error ctx at Key_not_text
@@ -321,17 +333,27 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
           min_properties = d.min_properties;
           max_properties = d.max_properties;
         }
-  | S.Nullable t -> (
-      (* [null] once, however many options say it. *)
-      match walk_ ctx dir at depth t with
-      | Nullable _ as s -> s
-      | s -> Nullable s)
+  | S.Nullable t ->
+      (* [null] once, however many options say it, and a doc around both,
+         since it is the doc of whatever the value is. *)
+      let rec nullable = function
+        | Nullable _ as s -> s
+        | Described d -> Described { d with schema = nullable d.schema }
+        | s -> Nullable s
+      in
+      nullable (walk_ ctx dir at depth t)
   | S.Object (about, o) -> object_ ctx dir at depth about o
-  | S.Any (_, a) -> any ctx dir at depth a
-  | S.Map (_, m) -> (
-      match (walk_ ctx dir at depth m.inner, m.format) with
-      | String s, Some f -> String { s with format = Some f }
-      | s, (Some _ | None) -> s)
+  | S.Any (about, a) -> described about (any ctx dir at depth a)
+  | S.Map (about, m) ->
+      let rec formatted = function
+        | Described d -> Described { d with schema = formatted d.schema }
+        | String s -> (
+            match m.format with
+            | Some f -> String { s with format = Some f }
+            | None -> String s)
+        | s -> s
+      in
+      described about (formatted (walk_ ctx dir at depth m.inner))
   | S.Value ->
       report ctx at
         "any JSON (Wiretype.Value.json), which says nothing of its shape";
@@ -450,24 +472,25 @@ and object_ : type o. ctx -> dir -> string -> int -> S.about -> o S.obj -> t =
                 ("A case's tag cannot be written: " ^ Unwritable.to_string e);
               Value.Null
         in
-        Tagged
-          {
-            tag = c.name;
-            absent = Option.map value c.absent;
-            cases =
-              List.map
-                (fun (S.Case cm) ->
-                  ( value cm.tag,
-                    {
-                      about = cm.case_about.doc;
-                      props = base @ props ctx dir at depth cm.obj.fields;
-                      additional =
-                        (match (o.unknown, cm.obj.unknown) with
-                        | S.Skip, S.Skip -> Allowed
-                        | S.Refuse, _ | _, S.Refuse -> Refused);
-                    } ))
-                c.cases;
-          }
+        described about
+          (Tagged
+             {
+               tag = c.name;
+               absent = Option.map value c.absent;
+               cases =
+                 List.map
+                   (fun (S.Case cm) ->
+                     ( value cm.tag,
+                       {
+                         about = cm.case_about.doc;
+                         props = base @ props ctx dir at depth cm.obj.fields;
+                         additional =
+                           (match (o.unknown, cm.obj.unknown) with
+                           | S.Skip, S.Skip -> Allowed
+                           | S.Refuse, _ | _, S.Refuse -> Refused);
+                       } ))
+                   c.cases;
+             })
   in
   if String.equal about.kind "" then build ()
   else
@@ -549,6 +572,7 @@ module Json_schema = struct
     if String.equal doc "" then rest else ("description", str doc) :: rest
 
   let some key f = function None -> [] | Some x -> [ (key, f x) ]
+  let undoc = List.filter (fun (k, _) -> not (String.equal k "description"))
 
   let bounds (b : number) =
     some "minimum" number b.min
@@ -631,6 +655,12 @@ module Json_schema = struct
     | Nullable t ->
         obj [ ("anyOf", Value.Array [ of_t ~defs t; obj (typed "null") ]) ]
     | Union ts -> obj [ ("anyOf", Value.Array (List.map (of_t ~defs) ts)) ]
+    (* The nearest doc to where it is used is the one said. *)
+    | Described { doc; schema } -> (
+        match of_t ~defs schema with
+        | Value.Object fields ->
+            Value.Object (undoc fields @ [ ("description", str doc) ])
+        | v -> v)
     | Tagged { tag; absent; cases } ->
         obj
           [
@@ -669,9 +699,15 @@ module Json_schema = struct
                          | [] -> []
                          | vs -> [ ("examples", Value.Array vs) ]
                        in
+                       (* A member's doc says what its shape is there, so it
+                          wins over the shape's own. *)
                        match (of_t ~defs p.schema, extra) with
                        | s, [] -> (p.name, s)
                        | Value.Object fields, extra ->
+                           let fields =
+                             if String.equal p.doc "" then fields
+                             else undoc fields
+                           in
                            (p.name, Value.Object (fields @ extra))
                        | s, _ -> (p.name, s)))
                  o.props) );
@@ -736,8 +772,13 @@ module Zod = struct
         doc;
       Printf.sprintf "%s/** %s */\n" indent (Buffer.contents b)
 
+  (* A member's doc, or its shape's, where a comment stands: no comment stands
+     inside an expression, so an item's doc is JSON Schema's alone. *)
   let prop_comment (p : prop) =
-    match (p.deprecated, p.doc) with
+    let doc =
+      match (p.doc, p.schema) with "", Described d -> d.doc | doc, _ -> doc
+    in
+    match (p.deprecated, doc) with
     | false, doc -> doc
     | true, "" -> "@deprecated"
     | true, doc -> "@deprecated " ^ doc
@@ -746,7 +787,8 @@ module Zod = struct
      out, which is only ever itself or one it is recursive with. *)
   let rec refers names = function
     | Ref n -> List.mem n names
-    | Array { items = t; _ } | Nullable t -> refers names t
+    | Array { items = t; _ } | Nullable t | Described { schema = t; _ } ->
+        refers names t
     | Union ts | Tuple ts -> List.exists (refers names) ts
     | Dict { keys; values; _ } -> refers names keys || refers names values
     | Object o -> refers_in names o
@@ -843,7 +885,7 @@ module Zod = struct
         (* A record keyed by an enum wants every word; a map has the ones it
            has. *)
         let record =
-          match d.keys with
+          match undescribed d.keys with
           | String { words = Some _; _ } -> "z.partialRecord("
           | _ -> "z.record("
         in
@@ -855,6 +897,7 @@ module Zod = struct
           ^ ")")
           (properties d.min_properties d.max_properties)
     | Object o -> obj indent forward o []
+    | Described d -> expr ~indent ~forward d.schema
     | Ref n -> n ^ "Schema"
     | Nullable t -> "z.nullable(" ^ expr ~indent ~forward t ^ ")"
     | Union ts ->
@@ -921,7 +964,10 @@ module Zod = struct
       | [] -> []
       | (name, s) :: rest ->
           let forward = name :: List.map fst rest in
-          ((match s with Object o -> comment "" o.about | _ -> "")
+          ((match s with
+             | Object o -> comment "" o.about
+             | Described d -> comment "" d.doc
+             | _ -> "")
           ^ Printf.sprintf
               "export const %sSchema = %s;\n\
                export type %s = z.infer<typeof %sSchema>;\n\n"
