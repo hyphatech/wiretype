@@ -37,7 +37,12 @@ val path : ?root:string -> segment list -> string
     that is wrong as [scores.purple[name]]; the root itself is [root], or the
     empty string. A member's name that is empty, or holds anything but letters,
     digits, [_], [-], [$] and non-ASCII text, is written quoted as JSON --
-    [items["a.b"]] -- so a path is one line, and two are never spelt alike. *)
+    [items["a.b"]] -- so a path is one line, and two are never spelt alike.
+    Quoted too is a name holding what would end a line or reorder the text
+    around it though it is not ASCII -- a C1 control, NEL among them, U+2028,
+    U+2029, or a bidirectional control: U+061C, U+200E, U+200F, U+202A to
+    U+202E, U+2066 to U+2069 -- and each of those is written as JSON's escape,
+    [["a\u2028b"]], so a path reads as the name is. *)
 
 val to_string : t -> string
 (** One line for a log: where, the sentence, the code. *)

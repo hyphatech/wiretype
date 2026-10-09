@@ -133,6 +133,49 @@ let paths () =
       ({|["a b"][name]|}, [ Name "a b" ]);
       ("", []);
     ];
+  (* What would end a log line, or turn the text around it, though it is
+     not ASCII: each is written as JSON's escape. *)
+  List.iter
+    (fun (u, escaped) ->
+      let b = Buffer.create 8 in
+      Buffer.add_string b "a";
+      Buffer.add_utf_8_uchar b (Uchar.of_int u);
+      Buffer.add_string b "b";
+      let name = Buffer.contents b in
+      Alcotest.(check string)
+        escaped
+        (Printf.sprintf {|x["a%sb"]|} escaped)
+        (P.path [ Member "x"; Member name ]);
+      Alcotest.(check string)
+        (escaped ^ " in a map's name")
+        (Printf.sprintf {|["a%sb"][name]|} escaped)
+        (P.path [ Name name ]))
+    [
+      (0x0080, {|\u0080|});
+      (0x0085, {|\u0085|});
+      (0x009B, {|\u009B|});
+      (0x009F, {|\u009F|});
+      (0x061C, {|\u061C|});
+      (0x200E, {|\u200E|});
+      (0x200F, {|\u200F|});
+      (0x2028, {|\u2028|});
+      (0x2029, {|\u2029|});
+      (0x202A, {|\u202A|});
+      (0x202B, {|\u202B|});
+      (0x202C, {|\u202C|});
+      (0x202D, {|\u202D|});
+      (0x202E, {|\u202E|});
+      (0x2066, {|\u2066|});
+      (0x2067, {|\u2067|});
+      (0x2068, {|\u2068|});
+      (0x2069, {|\u2069|});
+    ];
+  Alcotest.(check string)
+    "beside text that is not escaped" {|["\u202Egröße\n"]|}
+    (P.path [ Member "\u{202E}größe\n" ]);
+  Alcotest.(check string)
+    "near the escaped, written as it is" "a\u{00A0}\u{2027}\u{202F}\u{2065}"
+    (P.path [ Member "a\u{00A0}\u{2027}\u{202F}\u{2065}" ]);
   Alcotest.(check string)
     "from a root" "body[2]"
     (P.path ~root:"body" [ Index 2 ]);
@@ -141,11 +184,18 @@ let paths () =
     (P.path ~root:"body" [ Member "a" ]);
   match J.decode J.Value.json {|{"a\nb": 1, "a\nb": 2}|} with
   | Ok _ -> Alcotest.fail "a member given twice is refused"
-  | Error ps ->
+  | Error ps -> (
       Alcotest.(check string)
         "one line for a log"
         {|["a\nb"]: This member is given more than once. (repeated_member)|}
-        (P.list_to_string ps)
+        (P.list_to_string ps);
+      match J.decode J.Value.json "{\"a\u{2028}\": 1, \"a\u{2028}\": 2}" with
+      | Ok _ -> Alcotest.fail "a member given twice is refused"
+      | Error ps ->
+          Alcotest.(check string)
+            "one line for a log, whatever the line breaks are"
+            {|["a\u2028"]: This member is given more than once. (repeated_member)|}
+            (P.list_to_string ps))
 
 (* ------------------------------------------------------------------ *)
 (* A description *)

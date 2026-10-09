@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Breaking: a path writes a member's name quoted as JSON where it holds a C1
+  control (NEL among them), U+2028, U+2029 or a bidirectional control
+  (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069), each as
+  JSON's `\u` escape (`items["a\u2028b"]`), where it wrote them as they
+  were: a problem printed for a log could end its line there, or show its
+  text in another order than it has.
 - Breaking: the doc of an enum, a kind, a map, a value of several sorts
   (`any`) and a union is in the schema, as an object's and a member's
   were: JSON Schema's `description` on its subschema, and zod's comment
