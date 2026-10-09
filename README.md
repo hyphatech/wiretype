@@ -138,7 +138,8 @@ the request's is then
 does not describe says so in both. Bounds -- ranges, `multiple_of`,
 lengths, counts -- are in both. So is a doc, wherever it is given -- an
 object, a member, an enum, a kind, a map, a union: JSON Schema's
-`description`, and zod's comment where a comment can stand.
+`description`, and zod's comment where a comment can stand. The zod it prints
+is checked in TypeScript, against zod itself, on every test run.
 
 What a walk could not make right is in `Schema.errors` -- two different
 descriptions under one kind, a map keyed by what is no text -- and a
