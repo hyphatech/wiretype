@@ -17,9 +17,9 @@
 (package
  (name wiretype)
  (synopsis
-  "JSON contracts for OCaml: one description validates, writes, and prints JSON Schema and zod")
+  "JSON contracts for OCaml: one description validates, writes, and prints JSON Schema and Zod")
  (description
-  "One value describes a JSON shape: it reads a document in one pass with every problem found, writes a value, checks the bounds it states, and prints itself as JSON Schema 2020-12 and as zod, so a server, a browser and a model read one contract. Depends on nothing.")
+  "One value describes a JSON shape: it reads a document in one pass with every problem found, writes a value, checks the bounds it states, and prints itself as JSON Schema 2020-12 and as Zod, so a server, a browser and a model read one contract. Depends on nothing.")
  (depends
   (ocaml
    (>= 5.5))

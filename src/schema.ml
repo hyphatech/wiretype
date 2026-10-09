@@ -737,7 +737,7 @@ module Json_schema = struct
 end
 
 (* ------------------------------------------------------------------ *)
-(* zod *)
+(* Zod *)
 
 module Zod = struct
   let quote = Text.quote
@@ -812,7 +812,7 @@ module Zod = struct
 
   let some f = function None -> [] | Some x -> [ f x ]
 
-  (* zod's multipleOf allows a few rounding errors, as a number's multiple
+  (* Zod's multipleOf allows a few rounding errors, as a number's multiple
      does, but an integer's is exact, and JavaScript's [%] is exact on every
      integer [z.int()] takes. *)
   let bounds ~multiple (b : number) =
@@ -826,7 +826,7 @@ module Zod = struct
     some (fun n -> Printf.sprintf "z.minLength(%d)" n) min
     @ some (fun n -> Printf.sprintf "z.maxLength(%d)" n) max
 
-  (* zod has no bound on how many members a record has. *)
+  (* Zod has no bound on how many members a record has. *)
   let properties min max =
     some
       (fun n -> Printf.sprintf "z.refine((o) => Object.keys(o).length >= %d)" n)
@@ -860,7 +860,7 @@ module Zod = struct
     checked base (extra @ lengths s.min_length s.max_length)
 
   (* [forward] are the components not yet written out where this schema is
-     printed: a member referring to one is a getter, which is how zod takes
+     printed: a member referring to one is a getter, which is how Zod takes
      a reference to a schema that comes later, or to the one it is in. *)
   let rec expr ?(indent = "") ?(forward = []) = function
     | Any -> "z.unknown()"

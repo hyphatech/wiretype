@@ -1,9 +1,9 @@
 (* The grammars behind the ready-made kinds, each a function of a string.
 
-   Each accepts no string the browser's zod check for it refuses, so a client
-   never turns away what the server would take: the regular expressions zod
+   Each accepts no string the browser's Zod check for it refuses, so a client
+   never turns away what the server would take: the regular expressions Zod
    4 checks with were read, and where the standard the kind names is looser
-   than zod -- RFC 3986 beside the URL standard -- the grammar here is the
+   than Zod -- RFC 3986 beside the URL standard -- the grammar here is the
    narrower. Every refusal is a sentence for a person. *)
 
 let digit c = match c with '0' .. '9' -> true | _ -> false
@@ -173,8 +173,8 @@ let not_a_duration =
   "This must be a duration written as ISO 8601 has it, like PT1H30M: weeks, or \
    days, hours, minutes and seconds, and never years or months."
 
-(* What zod's own check accepts, less years and months: the schema's pattern,
-   for whoever checks with one, since zod's duration takes both. *)
+(* What Zod's own check accepts, less years and months: the schema's pattern,
+   for whoever checks with one, since Zod's duration takes both. *)
 let duration_pattern =
   {|^P(?:\d+W|(?=\d|T\d)(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:[.,]\d+)?S)?)?)$|}
 
@@ -454,7 +454,7 @@ let base64_to_string ~url s =
 (* ------------------------------------------------------------------ *)
 (* IP addresses *)
 
-(* Dotted decimal: four numbers to 255, none with a leading zero, as zod's
+(* Dotted decimal: four numbers to 255, none with a leading zero, as Zod's
    check has it. *)
 let ipv4 s =
   let parts = String.split_on_char '.' s in

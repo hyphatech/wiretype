@@ -632,7 +632,7 @@ let int64_ st path (b : S.int64_bounds) =
                  (show b.multiple_of)) );
         ])
 
-(* zod's own check, so a browser and the server decide alike: the quotient
+(* Zod's own check, so a browser and the server decide alike: the quotient
    within four epsilons of a whole number, scaled by its size, since the
    value and the step were each rounded to a double before the division
    rounded again -- 19.99 is a multiple of 0.01, though 19.99 /. 0.01 is

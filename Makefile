@@ -9,7 +9,7 @@ help: ## list targets
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
 
 setup: ## create the local switch and install dependencies
-	@command -v node >/dev/null 2>&1 || echo "The zod rows need Node 24 or later."
+	@command -v node >/dev/null 2>&1 || echo "The Zod rows need Node 24 or later."
 	@[ -d _opam ] || opam switch create . 5.5.1 --no-install -y
 	opam install . --switch=$(CURDIR) --deps-only --with-test --with-dev-setup -y
 	cd test/zod && npm ci
@@ -20,8 +20,8 @@ build: ## build everything
 test: test-zod ## run the tests
 	$(OPAM) dune test --force
 
-# The kinds' rows as zod reads them, beside the OCaml suite's.
-test-zod: ## run the kinds' rows through zod
+# The kinds' rows as Zod reads them, beside the OCaml suite's.
+test-zod: ## run the kinds' rows through Zod
 	cd test/zod && node --test
 
 # Release is the profile opam installs with.

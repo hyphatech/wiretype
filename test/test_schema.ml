@@ -1,5 +1,5 @@
 (* The schema printers alone: a description walked and printed as JSON
-   Schema and as zod, in an executable that links nothing but the library.
+   Schema and as Zod, in an executable that links nothing but the library.
 
    What is pinned is what somebody with a description relies on: that its
    named objects are components, that an enum's words and a bound are said
