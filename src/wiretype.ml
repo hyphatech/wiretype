@@ -273,8 +273,16 @@ module Object = struct
             } );
     }
 
-  let opt_mem ?(doc = "") ?enc ?(access = `Read_write) ?(deprecated = false)
-      ?(examples = []) name shape m =
+  let opt_mem (type a) ?(doc = "") ?enc ?(access = `Read_write)
+      ?(deprecated = false) ?(examples = []) name (shape : a S.t) m =
+    (match shape with
+    | S.Nullable _ ->
+        malformed "Object.opt_mem"
+          "the member %S is over a nullable, so Some None would be written as \
+           null and read back as None; describe it with mem ~absent and \
+           nullable"
+          name
+    | _ -> ());
     {
       m with
       fields =

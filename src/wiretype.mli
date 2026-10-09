@@ -327,7 +327,10 @@ module Object : sig
   (** A member that may be left out: absent or [null] reads as [None], since
       clients write both for "nothing", and [None] is written by leaving it out.
       [access], [deprecated] and [examples] are {!mem}'s; an example is a value
-      the member holds when it is there. *)
+      the member holds when it is there. Raises [Invalid_argument] where the
+      description is a {!nullable}, whose [Some None] would be written [null]
+      and read back as [None]: {!mem} with [~absent] over a {!nullable} reads a
+      missing member as one value and [null] as [None]. *)
 
   val case_mem :
     ?doc:string ->

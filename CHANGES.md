@@ -15,6 +15,11 @@
   `Value.Number` that is not finite in any JSON, which it wrote `null`
   though its documentation said such a float is not written. `Value.write`
   still writes it `null`, and says so.
+- Breaking: `Object.opt_mem` over a `nullable` raises `Invalid_argument`,
+  and the deriver refuses an `option option` field, since `Some None` was
+  written `null` and read back as `None`. A member that tells a missing
+  value from `null` is `mem ~absent` over a `nullable`: `[@default e]` on
+  an `option` field.
 
 ## 0.2.0 (2026-10-08)
 

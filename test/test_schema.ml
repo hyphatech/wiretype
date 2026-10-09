@@ -292,15 +292,13 @@ let test_what_the_reader_refuses () =
        (S.Zod.components (S.components ctx)));
   let maybe =
     Wiretype.Object.map ~kind:"maybe" Fun.id
-    |> Wiretype.Object.opt_mem "v"
-         (Wiretype.nullable Wiretype.string)
-         ~enc:Fun.id
+    |> Wiretype.Object.opt_mem "v" Wiretype.string ~enc:Fun.id
     |> Wiretype.Object.finish
   in
   let ctx, _ = walked maybe in
   Alcotest.(check bool)
-    "an answer that may hold null says so" true
-    (contains ~sub:"v: z.optional(z.nullable(z.string()))"
+    "an answer never holds null" true
+    (contains ~sub:"v: z.optional(z.string())"
        (S.Zod.components (S.components ctx)))
 
 (* An application's own union of all five kinds is described as one; only

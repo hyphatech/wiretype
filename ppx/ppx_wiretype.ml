@@ -565,6 +565,12 @@ let member env (f : field) ~enc =
   let enc = labelled "enc" enc in
   let name = (Nolabel, B.estring ~loc f.wire) in
   match (is_option ld.pld_type, Attribute.get A.default ld) with
+  | Some inner, None when Option.is_some (is_option inner) ->
+      Location.raise_errorf ~loc
+        "wiretype: an option of an option may be left out, but Some None would \
+         be written as null and read back as None; write the inner option \
+         alone with [@default e], which reads a missing member as e and null \
+         as None"
   | Some inner, None ->
       let d = field_desc env ~target:inner ld in
       let examples =

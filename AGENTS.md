@@ -93,12 +93,13 @@ Each rule comes with why it exists and the test that catches a break.
   positive, two values with one
   word, a member described twice, two unions in one object, a case that is
   not an object, a member written by leaving it out that is read as
-  required -- since a description is a constant written in source,
-  and the mistake is found when the program starts, never on a request.
-  Each function's `.mli` says when it raises, and the deriver refuses at
-  compile time each of these it can see in the type -- a name given twice,
-  two constructors written alike -- leaving to the library only what it
-  cannot: a case whose one argument's type is no object.
+  required, an `opt_mem` over a nullable -- since a description is a
+  constant written in source, and the mistake is found when the program
+  starts, never on a request. Each function's `.mli` says when it raises,
+  and the deriver refuses at compile time each of these it can see in the
+  type -- a name given twice, two constructors written alike, an option of
+  an option -- leaving to the library only what it cannot: a case whose
+  one argument's type is no object.
   Nothing else raises across the library's boundary. Test: `test_style`
   allows `invalid_arg` in `wiretype.ml` alone, and refuses any other;
   `test_wiretype`'s malformed descriptions; `test_ppx_wiretype`'s

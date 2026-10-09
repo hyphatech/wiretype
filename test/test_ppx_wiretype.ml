@@ -98,6 +98,9 @@ let () =
                "type t = { a_b : int; aB : int } [@@rename_all camel] \
                 [@@deriving wiretype]"
                "a_b and aB are both the member \"aB\"");
+          Alcotest.test_case "an option of an option" `Quick
+            (refused "type t = { a : int option option } [@@deriving wiretype]"
+               "Some None would be written as null and read back as None");
           Alcotest.test_case "a member that is the tag" `Quick
             (refused
                "type t = A of { type_ : string } | B [@@deriving wiretype]"

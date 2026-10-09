@@ -728,6 +728,13 @@ let malformed_descriptions () =
       |> J.Object.mem "a" J.int ~enc:Fun.id
       |> J.Object.opt_mem "a" J.int ~enc:Option.some
       |> J.Object.finish);
+  refused "an optional member over a nullable"
+    "Wiretype.Object.opt_mem: the member \"a\" is over a nullable, so Some \
+     None would be written as null and read back as None; describe it with mem \
+     ~absent and nullable" (fun () ->
+      J.Object.map Fun.id
+      |> J.Object.opt_mem "a" (J.nullable J.int) ~enc:Fun.id
+      |> J.Object.finish);
   refused "a member that is the union's tag"
     "Wiretype.Object.finish: the member \"t\" is described twice" (fun () ->
       J.Object.map (fun _ c -> c)
