@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Breaking: a value `encode` refuses as `too_deep` is at no more than the
+  first 16 segments of its path, its sentence saying how many levels
+  below (`[0][0]...: This is nested more than 512 deep, 496 levels below
+  here.`), as `decode`'s problem is, where its path went the whole way
+  down, 512 segments and more.
 - The deriver refuses an `int32`, a `nativeint`, a `char` and `bytes`
   where each is written, saying what to write instead, where the derived
   code failed to compile on an unbound `int32_json`.

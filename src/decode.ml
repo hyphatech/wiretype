@@ -83,15 +83,9 @@ let literal st path word =
   if st.i + n <= st.len && matches 0 then st.i <- st.i + n
   else syntax st path ("'" ^ word ^ "'")
 
-(* A path as deep as the limit is a line no log keeps -- 1.5 KB at 512,
-   30 KB at 10,000 -- so it is cut to where the nesting starts, which says
-   which part of a document went deep, and the sentence says how far below.
-   What is kept is a path from the root, to a place the document has. *)
-let too_deep_shown = 16
-
 let enter st path depth =
   if depth >= st.max_depth then
-    let below = List.length path - too_deep_shown in
+    let below = List.length path - Encode.too_deep_shown in
     if below <= 0 then
       fatal path P.Too_deep
         (Printf.sprintf "This is nested more than %d deep." st.max_depth)

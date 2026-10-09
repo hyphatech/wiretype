@@ -1868,8 +1868,32 @@ let unwritable () =
   Alcotest.(check (result unit string))
     "nested as deep as a reader reads" (Ok ())
     (Result.map (fun _ -> ()) (written J.Value.json (deep 512)));
-  refused "and no deeper" J.Value.json (deep 513)
-    (String.concat "" (List.init 512 (fun _ -> "[0]")) ^ " too_deep")
+  let said v =
+    Result.map ignore
+      (Result.map_error J.Unwritable.to_string (J.encode J.Value.json v))
+  in
+  let first n = String.concat "" (List.init n (fun _ -> "[0]")) in
+  (* A log keeps the place a value went deep, never the whole way down. *)
+  Alcotest.(check (result unit string))
+    "and no deeper, said where it starts"
+    (Error
+       (first 16
+      ^ ": This is nested more than 512 deep, 496 levels below here. (too_deep)"
+       ))
+    (said (deep 513));
+  Alcotest.(check (result unit string))
+    "a path from the root"
+    (Error
+       ("a" ^ first 15
+      ^ ": This is nested more than 512 deep, 496 levels below here. (too_deep)"
+       ))
+    (said (V.Object [ ("a", deep 512) ]));
+  Alcotest.(check (result unit (list string)))
+    "as a reader says it"
+    (Result.map_error (fun e -> [ e ]) (said (deep 513)))
+    (Result.map ignore
+       (Result.map_error (List.map P.to_string)
+          (J.decode J.Value.json (String.make 513 '[' ^ String.make 513 ']'))))
 
 (* An object, a union, a map and a tuple, written and read back: what is
    read is written as it was. *)

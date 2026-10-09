@@ -10,7 +10,10 @@ type code =
   | Repeated_member
       (** a member, or a map's name, written twice (RFC 7493 §2.3) *)
   | Name_not_text  (** a map's name its key's description writes as no text *)
-  | Too_deep  (** nested past what {!Wiretype.decode} reads by default *)
+  | Too_deep
+      (** nested past what {!Wiretype.decode} reads by default: at the first 16
+          segments of its path, a place the value has, where a deeper path would
+          be a line no log keeps; its sentence says how many levels below *)
 
 val code_to_string : code -> string
 (** [read_only], [not_utf8], ...: the word a log or a client reads. *)

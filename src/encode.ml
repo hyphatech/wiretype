@@ -33,9 +33,22 @@ let text b path s =
   if String.is_valid_utf_8 s then Text.string b s
   else fail path U.Not_utf8 "This text is not UTF-8."
 
+(* A path as deep as the limit is a line no log keeps -- 1.5 KB at 512,
+   30 KB at 10,000 -- so it is cut to where the nesting starts, which says
+   which part of a document or a value went deep, and the sentence says how
+   far below. What is kept is a path from the root, to a place it has. The
+   reader cuts its path here too, so the two say a depth alike. *)
+let too_deep_shown = 16
+
 let enter path depth =
   if depth >= max_depth then
-    fail path U.Too_deep "This is nested more than %d deep." max_depth
+    let below = List.length path - too_deep_shown in
+    if below <= 0 then
+      fail path U.Too_deep "This is nested more than %d deep." max_depth
+    else
+      fail (List.drop below path) U.Too_deep
+        "This is nested more than %d deep, %d %s below here." max_depth below
+        (if below = 1 then "level" else "levels")
 
 let named (about : S.about) =
   if String.equal about.kind "" then "value" else about.kind
