@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `decode ~max_depth` below 0 is 0, as one past 10,000 is 10,000: a
+  scalar alone is read, and the problem says it is nested more than 0
+  deep, where it said more than a negative number.
 - Breaking: a path writes a member's name quoted as JSON where it holds a C1
   control (NEL among them), U+2028, U+2029 or a bidirectional control
   (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069), each as

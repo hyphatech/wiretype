@@ -404,7 +404,10 @@ let rec json st path depth : Value.t =
   | _ -> syntax st path "a value"
 
 (* Each level of nesting is a frame of the reader's own recursion, so no
-   caller's limit is taken past one a stack holds wherever OCaml runs. *)
+   caller's limit is taken past one a stack holds wherever OCaml runs. A
+   limit below none is none, as one past the ceiling is the ceiling, since
+   reading runs on a request, where nothing raises: a limit that can mean
+   nothing is taken as the nearest that does. *)
 let max_depth_ceiling = 10_000
 
 let state ?(max_depth = Encode.max_depth) s =
@@ -413,7 +416,7 @@ let state ?(max_depth = Encode.max_depth) s =
     len = String.length s;
     i = 0;
     problems = [];
-    max_depth = Int.min max_depth max_depth_ceiling;
+    max_depth = Int.max 0 (Int.min max_depth max_depth_ceiling);
   }
 
 (* A value as the JSON it is written as: a union's tag, compared with the

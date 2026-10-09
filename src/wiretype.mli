@@ -67,7 +67,8 @@ type 'a t = 'a Shape.t
 
 val decode : ?max_depth:int -> 'a t -> string -> ('a, Problem.t list) result
 (** [max_depth] is how deep the document may nest, 512 unless given and never
-    more than 10,000. *)
+    more than 10,000: [[]] is nested one deep, and a limit of 0 reads a scalar
+    alone, as any below it does. *)
 
 val encode : 'a t -> 'a -> (string, Unwritable.t) result
 (** [Error] is the first place that could not be written, and why: a description

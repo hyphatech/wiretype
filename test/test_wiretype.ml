@@ -598,7 +598,16 @@ let nesting () =
     (match J.decode ~max_depth:max_int J.Value.json (deep 1_000_000) with
     | Ok _ -> []
     | Error ps ->
-        List.map (fun (p : J.Problem.t) -> J.Problem.code_to_string p.code) ps)
+        List.map (fun (p : J.Problem.t) -> J.Problem.code_to_string p.code) ps);
+  Alcotest.(check (result unit (list string)))
+    "a limit below none is none"
+    (Error [ "the document: This is nested more than 0 deep. (too_deep)" ])
+    (Result.map ignore
+    @@ Result.map_error (List.map P.to_string)
+         (J.decode ~max_depth:(-1) J.Value.json "[]"));
+  Alcotest.(check bool)
+    "and reads a scalar" true
+    (Result.is_ok (J.decode ~max_depth:min_int J.Value.json "1"))
 
 type colour = Black | White
 
