@@ -28,6 +28,11 @@
     - A type {b parameter} ['a] is an argument, its description, in order; a
       type of the group that refers to itself is described through
       [Wiretype.rec'].
+    - An [int], [int64], [float], [string] and [bool] are their own
+      descriptions, and [unit] is [null]; a [list] and an [array] are a JSON
+      array, and an [option] is its type or [null]. An [int32], a [nativeint], a
+      [char] and [bytes] have no description, and are refused, saying what to
+      write instead.
     - A {b tuple} is a JSON array of exactly its items, each by its own
       description.
     - Any other type [M.t] is described by [M.json], and [u] by [u_json]: a

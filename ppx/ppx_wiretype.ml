@@ -345,6 +345,24 @@ let rec desc env (ct : core_type) =
           [%expr Wiretype.string]
       | Ptyp_constr ({ txt = Lident "bool"; _ }, []) -> [%expr Wiretype.bool]
       | Ptyp_constr ({ txt = Lident "unit"; _ }, []) -> [%expr Wiretype.null ()]
+      (* The stdlib's scalars Wiretype has no description of would be read as
+         a type named here, and fail as an unbound [int32_json]. *)
+      | Ptyp_constr ({ txt = Lident "int32"; _ }, []) ->
+          Location.raise_errorf ~loc
+            "wiretype: int32 has no description; write int, which holds every \
+             int32 on a 64-bit OCaml, or describe it with [@with d]"
+      | Ptyp_constr ({ txt = Lident "nativeint"; _ }, []) ->
+          Location.raise_errorf ~loc
+            "wiretype: nativeint has no description; write int64, which holds \
+             every nativeint, or describe it with [@with d]"
+      | Ptyp_constr ({ txt = Lident "char"; _ }, []) ->
+          Location.raise_errorf ~loc
+            "wiretype: char has no description; write string, or a variant of \
+             the characters it may be"
+      | Ptyp_constr ({ txt = Lident "bytes"; _ }, []) ->
+          Location.raise_errorf ~loc
+            "wiretype: bytes has no description; write string, as a JSON \
+             string is text, or describe it with [@with d]"
       | Ptyp_constr ({ txt = Lident "list"; _ }, [ a ]) ->
           [%expr Wiretype.list [%e desc env a]]
       | Ptyp_constr ({ txt = Lident "array"; _ }, [ a ]) ->

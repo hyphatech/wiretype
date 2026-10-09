@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The deriver refuses an `int32`, a `nativeint`, a `char` and `bytes`
+  where each is written, saying what to write instead, where the derived
+  code failed to compile on an unbound `int32_json`.
 - Breaking: `decode` lists at most a hundred problems, or as many as a new
   `?max_problems` says; past it, reading stops and the list ends with one
   problem of a new code, `too_many_problems` (`Problem.Too_many_problems`,

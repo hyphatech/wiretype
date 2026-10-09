@@ -58,6 +58,20 @@ let () =
           Alcotest.test_case "a function" `Quick
             (refused "type t = { f : int -> int } [@@deriving wiretype]"
                "this type has no JSON shape");
+          Alcotest.test_case "a scalar wiretype has no description of" `Quick
+            (fun () ->
+              List.iter
+                (fun (ty, message) ->
+                  refused
+                    ("type t = { f : " ^ ty ^ " } [@@deriving wiretype]")
+                    message ())
+                [
+                  ("int32", "int32 has no description; write int");
+                  ("nativeint", "nativeint has no description; write int64");
+                  ("char", "char has no description; write string");
+                  ("bytes", "bytes has no description; write string");
+                  ("int32 list", "int32 has no description; write int");
+                ]);
           Alcotest.test_case "several arguments" `Quick
             (refused "type t = A of int * string [@@deriving wiretype]"
                "give them names in an inline record");
