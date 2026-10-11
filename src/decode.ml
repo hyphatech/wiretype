@@ -729,7 +729,14 @@ let member name set = { name; set; seen = false }
 type hook = (string * int) list -> member list * S.unknown * (unit -> unit)
 
 let rec value : type a. st -> path -> int -> a S.t -> a option =
- fun st path depth shape ->
+ fun st path depth shape -> described st path depth 0 shape
+
+(* [selves] is how many descriptions of themselves have been gone through
+   since a value was last begun. They are counted rather than flagged: the
+   deriver writes an option of a type of the same recursive group as two of
+   them with nothing read between. *)
+and described : type a. st -> path -> int -> int -> a S.t -> a option =
+ fun st path depth selves shape ->
   ws st;
   match shape with
   | S.Null v ->
@@ -785,7 +792,7 @@ let rec value : type a. st -> path -> int -> a S.t -> a option =
       if Char.equal (peek st) 'n' then (
         literal st path "null";
         Some None)
-      else Option.map Option.some (value st path depth t)
+      else Option.map Option.some (described st path depth selves t)
   | S.Object (_, o) ->
       if Char.equal (peek st) '{' then object_ st path depth o
       else mismatch st path depth "an object"
@@ -801,7 +808,7 @@ let rec value : type a. st -> path -> int -> a S.t -> a option =
         | _ -> None
       in
       match pick with
-      | Some t -> value st path depth t
+      | Some t -> described st path depth selves t
       | None -> mismatch st path depth (either (sorts a)))
   | S.Map (_, m) -> (
       match m.dec with
@@ -810,7 +817,7 @@ let rec value : type a. st -> path -> int -> a S.t -> a option =
           skip st path depth;
           None
       | Some dec -> (
-          match value st path depth m.inner with
+          match described st path depth selves m.inner with
           | None -> None
           | Some x -> (
               match dec x with
@@ -819,7 +826,13 @@ let rec value : type a. st -> path -> int -> a S.t -> a option =
                   report st path P.Malformed message;
                   None)))
   | S.Value -> Some (json st path depth)
-  | S.Rec l -> value st path depth (Lazy.force l)
+  | S.Rec l ->
+      if selves >= Encode.max_selves then (
+        report st path P.Malformed
+          "This is described only as itself, which reads nothing.";
+        skip st path depth;
+        None)
+      else described st path depth (selves + 1) (Lazy.force l)
 
 and list : type a. st -> path -> int -> a S.elements -> a list option =
  fun st path depth l ->

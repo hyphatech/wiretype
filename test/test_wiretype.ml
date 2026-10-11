@@ -955,6 +955,62 @@ let names () =
       ("list of itself", J.name (J.rec' nest));
     ]
 
+(* A chain of descriptions of themselves with nothing between, as the
+   deriver writes an option of a type of its own group. *)
+type chain = links option
+and links = { next : chain } [@@deriving wiretype]
+
+let only_itself () =
+  let read name shape text expected =
+    Alcotest.(check (result int string))
+      name expected
+      (Result.map_error P.list_to_string (J.decode shape text))
+  in
+  let write name shape v expected =
+    Alcotest.(check (result string string)) name expected (written shape v)
+  in
+  let rec bare = lazy (J.rec' bare) in
+  read "itself alone is read as nothing" (J.rec' bare) "1"
+    (Error
+       "the document: This is described only as itself, which reads nothing. \
+        (malformed)");
+  write "nor written" (J.rec' bare) 1
+    (Error
+       "the value: This is described only as itself, which writes nothing. \
+        (unspellable)");
+  let rec mapped = lazy (J.map ~dec:Fun.id ~enc:Fun.id (J.rec' mapped)) in
+  read "through a map" (J.rec' mapped) "1"
+    (Error
+       "the document: This is described only as itself, which reads nothing. \
+        (malformed)");
+  write "through a map, written" (J.rec' mapped) 1
+    (Error
+       "the value: This is described only as itself, which writes nothing. \
+        (unspellable)");
+  let rec sorts =
+    lazy
+      (J.any ~dec_number:(J.rec' sorts)
+         ~dec_array:(J.map ~dec:List.length (J.list (J.rec' sorts)))
+         ~enc:(fun _ -> J.rec' sorts)
+         ())
+  in
+  read "inside what it reads" (J.rec' sorts) "[1]"
+    (Error
+       "[0]: This is described only as itself, which reads nothing. (malformed)");
+  write "through a value of several sorts" (J.rec' sorts) 1
+    (Error
+       "the value: This is described only as itself, which writes nothing. \
+        (unspellable)");
+  let twice = J.rec' (lazy (J.rec' (lazy J.int))) in
+  read "two descriptions of themselves, one in the other" twice "1" (Ok 1);
+  let chain = Some { next = Some { next = None } } in
+  Alcotest.(check (result string string))
+    "and an option of the group, derived" (Ok {|{"next":{"next":null}}|})
+    (written chain_json chain);
+  Alcotest.(check bool)
+    "read back" true
+    (J.decode chain_json {|{"next":{"next":null}}|} = Ok chain)
+
 let malformed_descriptions () =
   let refused name message f =
     Alcotest.check_raises name (Invalid_argument message) (fun () ->
@@ -2750,6 +2806,7 @@ let () =
           Alcotest.test_case "tuples" `Quick tuples;
           Alcotest.test_case "maps" `Quick dicts;
           Alcotest.test_case "names" `Quick names;
+          Alcotest.test_case "described only as itself" `Quick only_itself;
           Alcotest.test_case "values, tuples and the pieces" `Quick values;
           Alcotest.test_case "malformed descriptions" `Quick
             malformed_descriptions;

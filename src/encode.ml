@@ -53,8 +53,17 @@ let enter path depth =
 let named (about : S.about) =
   if String.equal about.kind "" then "value" else about.kind
 
+(* No description written by hand or derived goes through so many before
+   it reads or writes a value: only one that goes round them for ever. *)
+let max_selves = 512
+
 let rec value : type a. Buffer.t -> path -> int -> a S.t -> a -> unit =
- fun b path depth shape v ->
+ fun b path depth shape v -> described b path depth 0 shape v
+
+(* [selves] is how many descriptions of themselves have been gone through
+   since a value was last begun, as the reader counts them. *)
+and described : type a. Buffer.t -> path -> int -> int -> a S.t -> a -> unit =
+ fun b path depth selves shape v ->
   match shape with
   | S.Null _ -> Buffer.add_string b "null"
   | S.Bool -> Buffer.add_string b (if v then "true" else "false")
@@ -115,7 +124,7 @@ let rec value : type a. Buffer.t -> path -> int -> a S.t -> a -> unit =
              itself, which could not be looked into where it was built --
              would have the value read back as None. *)
           let start = Buffer.length b in
-          value b path depth t x;
+          described b path depth selves t x;
           if
             Buffer.length b - start = 4
             && String.equal (Buffer.sub b start 4) "null"
@@ -130,7 +139,7 @@ let rec value : type a. Buffer.t -> path -> int -> a S.t -> a -> unit =
       Buffer.add_char b '}'
   | S.Any (about, a) -> (
       match a.pick with
-      | Some f -> value b path depth (f v) v
+      | Some f -> described b path depth selves (f v) v
       | None ->
           fail path U.Read_only "This %s is read and never written."
             (named about))
@@ -141,10 +150,14 @@ let rec value : type a. Buffer.t -> path -> int -> a S.t -> a -> unit =
             (named about)
       | Some f -> (
           match f v with
-          | Ok x -> value b path depth m.inner x
+          | Ok x -> described b path depth selves m.inner x
           | Error e -> fail path U.Unspellable "%s" e))
   | S.Value -> json b path depth v
-  | S.Rec l -> value b path depth (Lazy.force l) v
+  | S.Rec l ->
+      if selves >= max_selves then
+        fail path U.Unspellable
+          "This is described only as itself, which writes nothing."
+      else described b path depth (selves + 1) (Lazy.force l) v
 
 (* Any JSON, held to what a reader takes as any description is. *)
 and json b path depth (v : Value.t) =

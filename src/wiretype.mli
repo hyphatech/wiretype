@@ -84,9 +84,10 @@ val encode : 'a t -> 'a -> (string, Unwritable.t) result
     made only to read, a value its kind cannot spell -- a float that is not
     finite, a value an enum has no word for, a case its union does not have, a
     [Some] that would be written [null] by a description of itself {!nullable}
-    could not look into -- or what would make a document {!decode} refuses: text
-    that is not UTF-8, a member or a map's name written twice, nesting past 512.
-    What [encode] writes, [decode] reads. *)
+    could not look into, any value of a description that is only itself -- or
+    what would make a document {!decode} refuses: text that is not UTF-8, a
+    member or a map's name written twice, nesting past 512. What [encode]
+    writes, [decode] reads. *)
 
 val to_value : 'a t -> 'a -> (Value.t, Unwritable.t) result
 (** The value as the JSON {!encode} writes for it. *)
@@ -273,7 +274,10 @@ val nullable : 'a t -> 'a option t
     cannot look into, is left to {!encode}, which refuses such a [Some]. *)
 
 val rec' : 'a t Lazy.t -> 'a t
-(** A description of itself. *)
+(** A description of itself. One that comes back to itself before it reads or
+    writes anything -- [let rec t = lazy (rec' t)] -- describes nothing:
+    {!decode} refuses what is there as {!Problem.Malformed}, and {!encode} the
+    value as {!Unwritable.Unspellable}. *)
 
 val map :
   ?kind:string ->

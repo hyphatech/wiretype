@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A description that comes back to itself before it reads anything --
+  `let rec t = lazy (J.rec' t)`, or through a `map` or an `any` -- is
+  refused at its place, by `decode` as `malformed` and by `encode` as
+  `unspellable`, where reading or writing went round for ever or ended
+  in `Stack_overflow`.
 - Breaking: the deriver reads a type written by its stdlib module's name -- `String.t`,
   `'a List.t`, `Stdlib.Int64.t` -- as its short name, bounds and an
   option's member alike, where the derived code failed to compile on an
