@@ -1263,8 +1263,8 @@ let malformed_descriptions () =
    browser's zod check does; the same rows are written out in the web suite's
    kinds.test.ts, which runs zod over them. The two answers are equal but
    where the browser is the looser -- a URI, an instant past the years 0000
-   to 9999 once in UTC, a duration past a hundred thousand years -- so the
-   server never takes what the browser refuses. *)
+   to 9999 once in UTC, a duration longer than an [Mtime.Span.t] holds -- so
+   the server never takes what the browser refuses. *)
 let instant_rows =
   [
     ("2026-09-30T12:00:00Z", true, true);
@@ -1319,8 +1319,12 @@ let duration_rows =
     ("1D", false, false);
     ("PT1.5M", false, false);
     ("P1DT", false, false);
-    ("P36525000D", true, true);
-    ("P36525001D", false, true);
+    ("P213503D", true, true);
+    ("PT18446744073.709S", true, true);
+    ("P213504D", false, true);
+    ("PT18446744073.710S", false, true);
+    ("-PT1S", false, false);
+    ("-P1D", false, false);
     ("P99999999999D", false, true);
     ("P1000000000000W", false, true);
     ("PT3000000000000000H", false, true);
@@ -1542,11 +1546,6 @@ let round_trip name shape gen ~equal ~print =
           | Ok w -> equal v w
           | Error ps -> QCheck.Test.fail_report (P.list_to_string ps)))
 
-let instant_of text =
-  match J.decode J.instant (V.to_string (V.String text)) with
-  | Ok t -> t
-  | Error ps -> Alcotest.fail (P.list_to_string ps)
-
 let kinds_round_trip =
   let open QCheck.Gen in
   let bytes = string_size ~gen:char (int_bound 40) in
@@ -1562,18 +1561,30 @@ let kinds_round_trip =
   in
   let date (y, m, d) = Printf.sprintf "%04d-%02d-%02d" y m d in
   let same_date (y, m, d) (y', m', d') = y = y' && m = m' && d = d' in
+  (* Every instant Ptime holds, to the picosecond, and every span Mtime
+     does, to the nanosecond: each reads back to the millisecond. *)
+  let first_day, _ = Ptime.Span.to_d_ps (Ptime.to_span Ptime.min) in
+  let last_day, _ = Ptime.Span.to_d_ps (Ptime.to_span Ptime.max) in
+  let to_ms span =
+    let ms = Int64.unsigned_div (Mtime.Span.to_uint64_ns span) 1_000_000L in
+    Mtime.Span.of_uint64_ns (Int64.mul ms 1_000_000L)
+  in
   [
-    round_trip "an instant" J.instant
-      (int_range
-         (instant_of "0000-01-01T00:00:00Z")
-         (instant_of "9999-12-31T23:59:59.999Z"))
-      ~equal:Int.equal ~print:string_of_int;
+    round_trip "an instant, to the millisecond," J.instant
+      (map2
+         (fun d ps -> Ptime.v (d, ps))
+         (int_range first_day last_day)
+         (map Int64.of_int (int_range 0 86_399_999_999_999_999)))
+      ~equal:(fun v w -> Ptime.equal (Ptime.truncate ~frac_s:3 v) w)
+      ~print:(Ptime.to_rfc3339 ~frac_s:12);
     round_trip "a date" J.date
       (triple (int_range 0 9999) (int_range 1 12) (int_range 1 28))
       ~equal:same_date ~print:date;
-    round_trip "a duration" J.duration
-      (oneof [ int_range 0 3_155_760_000_000_000; int_range 0 100_000_000 ])
-      ~equal:Int.equal ~print:string_of_int;
+    round_trip "a duration, to the millisecond," J.duration
+      (map Mtime.Span.of_uint64_ns
+         (oneof [ int64; map Int64.of_int (int_range 0 100_000_000_000_000) ]))
+      ~equal:(fun v w -> Mtime.Span.equal (to_ms v) w)
+      ~print:(fun v -> Printf.sprintf "%Luns" (Mtime.Span.to_uint64_ns v));
     round_trip "a uuid" (J.uuid ())
       (map uuid (triple hex (int_bound 7) (int_bound 3)))
       ~equal:String.equal ~print:Fun.id;
@@ -1604,22 +1615,44 @@ let spellings () =
   round (J.uuid ()) "01890A5D-AC96-7A3B-9E5A-5F1C2A7B8C9D"
     {|"01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d"|};
   round J.base64 "QR==" {|"QQ=="|};
-  Alcotest.(check (result string string))
-    "an instant is epoch milliseconds" (Ok "0")
-    (Result.map string_of_int
-       (Result.map_error
-          (fun _ -> "refused")
-          (J.decode J.instant {|"1970-01-01T00:00:00Z"|})));
+  Alcotest.(check bool)
+    "an instant is a Ptime.t" true
+    (match J.decode J.instant {|"1970-01-01T00:00:00Z"|} with
+    | Ok t -> Ptime.equal t Ptime.epoch
+    | Error _ -> false);
+  Alcotest.(check (list (result string string)))
+    "written to the millisecond, toward the past"
+    [
+      Ok {|"0000-01-01T00:00:00.000Z"|};
+      Ok {|"9999-12-31T23:59:59.999Z"|};
+      Ok {|"1969-12-31T23:59:59.999Z"|};
+    ]
+    (List.map (written J.instant)
+       [ Ptime.min; Ptime.max; Ptime.v (-1, 86_399_999_999_999_999L) ]);
+  Alcotest.(check bool)
+    "a duration is an Mtime.Span.t" true
+    (match J.decode J.duration {|"PT1.5S"|} with
+    | Ok d -> Mtime.Span.equal d (Mtime.Span.of_uint64_ns 1_500_000_000L)
+    | Error _ -> false);
+  Alcotest.(check (list (result string string)))
+    "written to the millisecond, the longest span included"
+    [ Ok {|"PT0.001S"|}; Ok {|"PT0S"|}; Ok {|"P213503DT23H34M33.709S"|} ]
+    (List.map (written J.duration)
+       [
+         Mtime.Span.of_uint64_ns 1_999_999L;
+         Mtime.Span.of_uint64_ns 999_999L;
+         Mtime.Span.max_span;
+       ]);
+  Alcotest.(check (list problem))
+    "a negative duration is refused, as is one longer than a span holds"
+    [ ("", "malformed"); ("", "malformed") ]
+    (problems {|"-PT1S"|} J.duration @ problems {|"P213504D"|} J.duration);
   Alcotest.(check (result string string))
     "a date past the years is not written"
     (Error
        "the value: 10000-1-1 is not a date of the years 0000 to 9999. \
         (unspellable)")
-    (written J.date (10000, 1, 1));
-  Alcotest.(check (result string string))
-    "nor a negative duration"
-    (Error "the value: A duration is never negative. (unspellable)")
-    (written J.duration (-1))
+    (written J.date (10000, 1, 1))
 
 (* Whether [s] holds [sub]: what the schema rows look for in a document. *)
 let contains s sub =
@@ -1772,6 +1805,25 @@ let derived_qualified () =
   in
   Alcotest.(check (pair string string))
     "the same schema" (schema Short.json) (schema Qualified.json)
+
+(* A time is a [Ptime.t] or an [Mtime.Span.t], and the deriver describes
+   each by its kind. *)
+type booking = {
+  starts : Ptime.t;
+  lasts : Mtime.Span.t;
+  grace : Mtime.span option;
+}
+[@@deriving wiretype]
+
+let derived_times () =
+  let text =
+    {|{"starts":"2026-09-30T12:00:00.000Z","lasts":"PT1H30M","grace":"PT5M"}|}
+  in
+  Alcotest.(check (result string string))
+    "an instant and durations, read and written back" (Ok text)
+    (match J.decode booking_json text with
+    | Ok b -> written booking_json b
+    | Error ps -> Error (P.list_to_string ps))
 
 let derived_awkward () =
   Alcotest.(check int)
@@ -2843,6 +2895,7 @@ let () =
           Alcotest.test_case "what once did not compile" `Quick derived_awkward;
           Alcotest.test_case "the stdlib's types by their modules' names" `Quick
             derived_qualified;
+          Alcotest.test_case "an instant and a duration" `Quick derived_times;
           Alcotest.test_case "attributes" `Quick derived_attributes;
         ] );
       ( "kinds",

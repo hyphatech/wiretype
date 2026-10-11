@@ -5,7 +5,7 @@
 type code =
   | Read_only  (** a description made only to read: no [enc] *)
   | Unspellable
-      (** a value its kind cannot write: an instant past the year 9999; or any
+      (** a value its kind cannot write: a date past the year 9999; or any
           value, where its description is only itself *)
   | Not_utf8  (** text that is not UTF-8, which no JSON reader takes *)
   | Repeated_member

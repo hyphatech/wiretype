@@ -165,27 +165,31 @@ val enum : ?kind:string -> ?doc:string -> ('a -> string) -> 'a list -> 'a t
 (** {1 Ready-made kinds}
 
     Each over a plain OCaml type, so no library's type is in an application's
-    API; each with its schema's [format] and its Zod check, and accepting no
-    string that check refuses. What each is, its [format] says, so a schema
-    prints no [description] of the library's for it: a doc is its user's, a
-    member's or one {!map} gives around the kind. *)
+    API, but for time: an instant is a [Ptime.t] and a duration an
+    [Mtime.Span.t], the types OCaml's libraries hold time in. Each with its
+    schema's [format] and its Zod check, and accepting no string that check
+    refuses. What each is, its [format] says, so a schema prints no
+    [description] of the library's for it: a doc is its user's, a member's or
+    one {!map} gives around the kind. *)
 
-val instant : int t
-(** An instant, in epoch milliseconds, as RFC 3339 [date-time]:
-    [2026-09-30T12:00:00.000Z], read with any fraction and offset -- a fraction
-    past the millisecond is dropped -- and written in UTC with milliseconds, so
-    one instant has one spelling. A leap second is refused, and so is an instant
-    that is outside the years 0000 to 9999 once in UTC --
-    [9999-12-31T23:59:59-01:00] -- since it could not be written back. *)
+val instant : Ptime.t t
+(** An instant, as RFC 3339 [date-time]: [2026-09-30T12:00:00.000Z], read with
+    any fraction and offset and written in UTC with milliseconds, so one instant
+    has one spelling; a fraction past the millisecond is dropped, toward the
+    past, in reading and in writing. A leap second is refused, and so is an
+    instant that is outside the years 0000 to 9999 once in UTC --
+    [9999-12-31T23:59:59-01:00] -- which no [Ptime.t] is. *)
 
 val date : (int * int * int) t
 (** A date, [(year, month, day)], as RFC 3339 [full-date]: [2026-09-30]. *)
 
-val duration : int t
-(** A duration, in milliseconds, as ISO 8601: [PT1H30M]. Weeks, or days, hours,
-    minutes and seconds; never years or months, which are no number of
-    milliseconds. A day is 24 hours, and one past a hundred thousand years is
-    refused. *)
+val duration : Mtime.Span.t t
+(** A duration, as ISO 8601: [PT1H30M]. Weeks, or days, hours, minutes and
+    seconds, to the millisecond; never years or months, which are no number of
+    milliseconds. A fraction past the millisecond is dropped, in reading and in
+    writing. A day is 24 hours, and one longer than an [Mtime.Span.t] holds --
+    2{^ 64} - 1 nanoseconds, about 584 years -- is refused, as is a negative
+    one, which ISO 8601 has no spelling for. *)
 
 val uuid : ?version:Shape.uuid_version -> unit -> string t
 (** A UUID, as RFC 9562 writes one, lower-cased: versions 1 to 8, with the nil

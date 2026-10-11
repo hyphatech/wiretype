@@ -1,9 +1,11 @@
 ; One value describes a shape, reads it, writes it and says what it is -- to
-; a JSON Schema, to zod, or to anybody who walks it. It depends on nothing.
+; a JSON Schema, to zod, or to anybody who walks it. It depends on Ptime and
+; Mtime alone, the types an instant and a duration are.
 
 (library
  (name wiretype)
  (public_name wiretype)
+ (libraries ptime mtime)
  (modules_without_implementation shape)
  (private_modules grammar decode encode powers idna_data))
 

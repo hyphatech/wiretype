@@ -126,6 +126,13 @@ let () =
                     ("type t = A of " ^ arg ^ " [@@deriving wiretype]")
                     "give it a name in an inline record" ())
                 [ "String.t"; "Stdlib.Int.t"; "int List.t"; "Stdlib.Unit.t" ]);
+          Alcotest.test_case "a case that is a time" `Quick (fun () ->
+              List.iter
+                (fun arg ->
+                  refused
+                    ("type t = A of " ^ arg ^ " [@@deriving wiretype]")
+                    "give it a name in an inline record" ())
+                [ "Ptime.t"; "Mtime.Span.t"; "Mtime.span" ]);
           Alcotest.test_case "a polymorphic tag that is no object" `Quick
             (refused "type t = [ `A of string | `B ] [@@deriving wiretype]"
                "`A's argument is no object, and a case is an object's members; \

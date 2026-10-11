@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Breaking: `instant` is a `Ptime.t t` and `duration` an `Mtime.Span.t t`,
+  where each was an `int t` of milliseconds, an `int` that said neither
+  its unit nor that it was a time. What each reads and writes, and the
+  JSON Schema and Zod each prints, are as they were. An instant is
+  written to the millisecond, a fraction past it dropped toward the past,
+  and can no longer fail to be written, since a `Ptime.t` is of the years
+  0000 to 9999. A duration is written to the millisecond, and is never
+  negative.
+- Breaking: a duration longer than an `Mtime.Span.t` holds, 2^64 - 1
+  nanoseconds or about 584 years, is refused as `malformed`, where one up
+  to a hundred thousand years was read.
+- The `wiretype` package depends on `ptime` and `mtime`, where it
+  depended on nothing; both depend on nothing themselves.
+- The deriver describes a `Ptime.t` as `Wiretype.instant`, and an
+  `Mtime.Span.t` or an `Mtime.span` as `Wiretype.duration`, where the
+  derived code failed to compile on an unbound `Ptime.json`, and refuses
+  a case whose one argument is one, as it refuses a scalar.
+
 - Breaking: `dict` labels its two descriptions and ends in `()`:
   `J.dict ~key:J.string ~value:(J.uuid ()) ()`, where
   `J.dict J.string (J.uuid ())` and `J.dict (J.uuid ()) J.string` both

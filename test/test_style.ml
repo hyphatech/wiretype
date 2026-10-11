@@ -43,6 +43,18 @@ let banned =
     ("exit", "a library never exits");
   ]
   @ List.map
+      (fun name ->
+        ( name,
+          "a time is a Ptime.t or an Mtime.Span.t, never a bare float of \
+           seconds" ))
+      [
+        "Unix.gettimeofday";
+        "Unix.time";
+        "Eio.Time.sleep";
+        "Eio.Time.with_timeout";
+        "Eio.Time.Timeout.seconds";
+      ]
+  @ List.map
       (fun name -> (name, "a library never prints: log through Logs"))
       [
         "print_string";
@@ -284,6 +296,11 @@ let shared_refusals =
     "Format.print_string";
     "Format.std_formatter";
     "Format.err_formatter";
+    "Unix.gettimeofday";
+    "Unix.time";
+    "Eio.Time.sleep";
+    "Eio.Time.with_timeout";
+    "Eio.Time.Timeout.seconds";
   ]
 
 let every_shared_refusal () =
@@ -298,6 +315,97 @@ let every_shared_refusal () =
         List.is_empty (banned_in "row.ml" ("let _ = " ^ name)))
   in
   Alcotest.(check (list string)) "names let through" [] missed
+
+(* Each name ending in [_s] or [_ms] given the type [float], with its line:
+   [x_s : float], [~x_s:float] and [~x_s:(x : float)]. A time counted in a
+   bare float is what OCAML.md's shared shapes refuse: a [Ptime.t] or an
+   [Mtime.Span.t] says its unit by its type. *)
+let floats_with_a_unit code =
+  let n = String.length code in
+  let is_name_char = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '\'' -> true
+    | _ -> false
+  in
+  let rec blanks i =
+    if
+      i < n
+      && match code.[i] with ' ' | '\n' | '\t' | '\r' -> true | _ -> false
+    then blanks (i + 1)
+    else i
+  in
+  let rec name_end i =
+    if i < n && is_name_char code.[i] then name_end (i + 1) else i
+  in
+  let float_at i =
+    i + 5 <= n
+    && String.equal (String.sub code i 5) "float"
+    && (i + 5 = n || not (is_name_char code.[i + 5]))
+  in
+  (* A colon that is a type's, not [::] or [:=]. *)
+  let colon_at i =
+    i < n
+    && Char.equal code.[i] ':'
+    && not
+         (i + 1 < n
+         && (Char.equal code.[i + 1] ':' || Char.equal code.[i + 1] '='))
+  in
+  let typed_float i =
+    colon_at i
+    &&
+    let j = blanks (i + 1) in
+    float_at j
+    || j < n
+       && Char.equal code.[j] '('
+       &&
+       let k = blanks (name_end (blanks (j + 1))) in
+       colon_at k && float_at (blanks (k + 1))
+  in
+  let rec go i line acc =
+    if i >= n then List.rev acc
+    else if Char.equal code.[i] '\n' then go (i + 1) (line + 1) acc
+    else if is_name_char code.[i] && (i = 0 || not (is_name_char code.[i - 1]))
+    then
+      let j = name_end i in
+      let name = String.sub code i (j - i) in
+      let with_unit =
+        String.ends_with ~suffix:"_s" name
+        || String.ends_with ~suffix:"_ms" name
+      in
+      go j line
+        (if with_unit && typed_float (blanks j) then (line, name) :: acc
+         else acc)
+    else go (i + 1) line acc
+  in
+  go 0 1 []
+
+let no_float_with_a_unit () =
+  let found =
+    List.concat_map
+      (fun file ->
+        floats_with_a_unit (code_of (read_source file))
+        |> List.map (fun (line, name) ->
+            Printf.sprintf
+              "%s:%d: %s is a float with a unit -- a time is a Ptime.t or an \
+               Mtime.Span.t"
+              file line name))
+      (sources ".ml" @ sources ".mli")
+  in
+  Alcotest.(check (list string)) "floats with a unit" [] found
+
+(* The forms OCAML.md's shared shapes refuse are each found, and a float
+   that is no time, or a time that is no float, is not. *)
+let every_float_with_a_unit () =
+  Alcotest.(check (list string))
+    "found"
+    [ "wait_s"; "timeout_ms"; "delay_s"; "after_ms" ]
+    (List.map snd
+       (floats_with_a_unit
+          "val f : wait_s:float -> unit\n\
+           let g (timeout_ms : float) = timeout_ms\n\
+           let h ?delay_s:(d : float) () = d\n\
+           type t = { after_ms : float }\n\
+           let ok (ratio : float) (n_s : int) xs_s = n_s :: xs_s\n\
+           let r_s := 1.0"))
 
 (* Every local open, [M.(...)], [M.[...]] or [M.{...}], with its line and
    module: a bracket after a path whose last name is capitalised, with any
@@ -417,13 +525,56 @@ let every_module_has_an_interface () =
   in
   Alcotest.(check (list string)) "modules without an interface" [] missing
 
-(* The library's stanza names no library, so [opam install wiretype]
-   installs nothing else. *)
-let depends_on_nothing () =
+let words s =
+  String.split_on_char ' '
+    (String.map (function '\n' | '\t' -> ' ' | c -> c) s)
+  |> List.filter (fun w -> not (String.equal w ""))
+
+(* The library's stanza names Ptime and Mtime and no other library, and the
+   package asks opam for nothing else but the compiler and dune, so [opam
+   install wiretype] installs those two and nothing more. *)
+let depends_on_ptime_and_mtime_alone () =
   let code = code_of_dune (read_source "src/dune") in
-  Alcotest.(check bool)
-    "src/dune names a library" false
-    (contains code "(libraries")
+  let libraries =
+    let marker = "(libraries" in
+    let m = String.length marker in
+    let rec at i =
+      if i + m > String.length code then []
+      else if String.equal (String.sub code i m) marker then
+        let rest = String.sub code (i + m) (String.length code - i - m) in
+        match String.index_opt rest ')' with
+        | Some j -> words (String.sub rest 0 j)
+        | None -> []
+      else at (i + 1)
+    in
+    at 0
+  in
+  Alcotest.(check (list string))
+    "the libraries src/dune names" [ "mtime"; "ptime" ]
+    (List.sort String.compare libraries);
+  (* Each line of the opam file's [depends] with no filter for a test, a
+     document or a developer's setup. *)
+  let opam = String.split_on_char '\n' (read_source "wiretype.opam") in
+  let rec inside = function
+    | [] -> []
+    | l :: rest when String.starts_with ~prefix:"depends: [" l -> depends rest
+    | _ :: rest -> inside rest
+  and depends = function
+    | [] -> []
+    | l :: _ when String.starts_with ~prefix:"]" l -> []
+    | l :: rest ->
+        let filtered =
+          List.exists (contains l) [ "with-test"; "with-doc"; "with-dev-setup" ]
+        in
+        let name =
+          match String.split_on_char '"' l with _ :: n :: _ -> n | _ -> l
+        in
+        if filtered then depends rest else name :: depends rest
+  in
+  Alcotest.(check (list string))
+    "what installing the package installs"
+    [ "dune"; "mtime"; "ocaml"; "ptime" ]
+    (List.sort String.compare (inside opam))
 
 let () =
   Alcotest.run "style"
@@ -437,6 +588,10 @@ let () =
           Alcotest.test_case "no silenced warning" `Quick no_silenced_warning;
           Alcotest.test_case "every module has an interface" `Quick
             every_module_has_an_interface;
-          Alcotest.test_case "depends on nothing" `Quick depends_on_nothing;
+          Alcotest.test_case "no float with a unit" `Quick no_float_with_a_unit;
+          Alcotest.test_case "every float with a unit" `Quick
+            every_float_with_a_unit;
+          Alcotest.test_case "depends on Ptime and Mtime alone" `Quick
+            depends_on_ptime_and_mtime_alone;
         ] );
     ]

@@ -1,5 +1,5 @@
 (* The schema printers alone: a description walked and printed as JSON
-   Schema and as Zod, in an executable that links nothing but the library.
+   Schema and as Zod, in an executable that links nothing but the library and Ptime.
 
    What is pinned is what somebody with a description relies on: that its
    named objects are components, that an enum's words and a bound are said
@@ -261,8 +261,8 @@ let test_what_is_loose_is_reported () =
   ignore
     (S.walk ctx S.Encode ~at:"x"
        (Wiretype.Object.map Fun.id
-       |> Wiretype.Object.mem "when" Wiretype.instant ~enc:Fun.id
-            ~examples:[ max_int ]
+       |> Wiretype.Object.mem "when" Wiretype.date ~enc:Fun.id
+            ~examples:[ (10000, 1, 1) ]
        |> Wiretype.Object.finish)
       : S.t);
   Alcotest.(check bool)
@@ -424,7 +424,7 @@ let test_a_kind_names_one_description () =
 
 (* A bound and a kind are the schema's as they are the decoder's, so the
    browser checks what the server will refuse. *)
-type slot = { at : int; minutes : int; seats : string list }
+type slot = { at : Ptime.t; minutes : int; seats : string list }
 
 let slot_json =
   Wiretype.Object.map ~kind:"slot" (fun at minutes seats ->

@@ -33,29 +33,6 @@ let leap y = (y mod 4 = 0 && y mod 100 <> 0) || y mod 400 = 0
 let days_in_month y m =
   match m with 2 -> if leap y then 29 else 28 | 4 | 6 | 9 | 11 -> 30 | _ -> 31
 
-(* Days since 1970-01-01 of a date in the proleptic Gregorian calendar, and
-   back, by Howard Hinnant's algorithms: exact for every year here. *)
-let days_of_date y m d =
-  let y = if m <= 2 then y - 1 else y in
-  let era = (if y >= 0 then y else y - 399) / 400 in
-  let yoe = y - (era * 400) in
-  let mp = (m + 9) mod 12 in
-  let doy = (((153 * mp) + 2) / 5) + d - 1 in
-  let doe = (yoe * 365) + (yoe / 4) - (yoe / 100) + doy in
-  (era * 146097) + doe - 719468
-
-let date_of_days z =
-  let z = z + 719468 in
-  let era = (if z >= 0 then z else z - 146096) / 146097 in
-  let doe = z - (era * 146097) in
-  let yoe = (doe - (doe / 1460) + (doe / 36524) - (doe / 146096)) / 365 in
-  let y = yoe + (era * 400) in
-  let doy = doe - ((365 * yoe) + (yoe / 4) - (yoe / 100)) in
-  let mp = ((5 * doy) + 2) / 153 in
-  let d = doy - (((153 * mp) + 2) / 5) + 1 in
-  let m = if mp < 10 then mp + 3 else mp - 9 in
-  ((if m <= 2 then y + 1 else y), m, d)
-
 let date_at s i =
   if
     i + 10 > String.length s
@@ -79,14 +56,6 @@ let date_to_string (y, m, d) =
     Error
       (Printf.sprintf "%d-%d-%d is not a date of the years 0000 to 9999." y m d)
   else Ok (Printf.sprintf "%04d-%02d-%02d" y m d)
-
-let day_ms = 86_400_000
-
-(* The instants that are written as RFC 3339 has them, in UTC: the years
-   0000 to 9999. One read with an offset that carries it past either end is
-   refused, so whatever is read can be written back. *)
-let first_instant = days_of_date 0 1 1 * day_ms
-let last_instant = (days_of_date 10000 1 1 * day_ms) - 1
 
 let not_an_instant =
   "This must be an instant written as RFC 3339 has it, like \
@@ -142,29 +111,33 @@ let instant_of_string s =
           in
           match offset with
           | None -> Error not_an_instant
-          | Some minutes ->
-              let t =
-                (days_of_date y mo d * day_ms)
-                + (((((h * 60) + mi) * 60) + sec) * 1000)
-                + ms - (minutes * 60_000)
+          | Some minutes -> (
+              (* Ptime holds the years 0000 to 9999 in UTC, the years RFC
+                 3339 writes, so one an offset carries past either end is
+                 refused and whatever is read can be written back. A
+                 fraction never carries a whole second out of them. *)
+              let fraction =
+                Ptime.Span.v (0, Int64.mul (Int64.of_int ms) 1_000_000_000L)
               in
-              if t < first_instant || t > last_instant then
-                Error
-                  "This instant is outside the years 0000 to 9999 once in UTC."
-              else Ok t)
+              match
+                Option.bind
+                  (Ptime.of_date_time
+                     ((y, mo, d), ((h, mi, sec), minutes * 60)))
+                  (fun t -> Ptime.add_span t fraction)
+              with
+              | Some t -> Ok t
+              | None ->
+                  Error
+                    "This instant is outside the years 0000 to 9999 once in \
+                     UTC."))
 
 let instant_to_string t =
-  if t < first_instant || t > last_instant then
-    Error (Printf.sprintf "The instant %d is outside the years 0000 to 9999." t)
-  else
-    let days = if t >= 0 then t / day_ms else ((t + 1) / day_ms) - 1 in
-    let rest = t - (days * day_ms) in
-    let y, m, d = date_of_days days in
-    let ms = rest mod 1000 and secs = rest / 1000 in
-    Ok
-      (Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ" y m d (secs / 3600)
-         (secs / 60 mod 60)
-         (secs mod 60) ms)
+  let (y, m, d), ((hh, mm, ss), _) = Ptime.to_date_time t in
+  (* A fraction past the millisecond is dropped, toward the past, as it is
+     in reading. *)
+  let _, ps = Ptime.Span.to_d_ps (Ptime.frac_s t) in
+  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%03LdZ" y m d hh mm ss
+    (Int64.div ps 1_000_000_000L)
 
 (* ------------------------------------------------------------------ *)
 (* Durations *)
@@ -178,8 +151,15 @@ let not_a_duration =
 let duration_pattern =
   {|^P(?:\d+W|(?=\d|T\d)(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:[.,]\d+)?S)?)?)$|}
 
-(* A duration past a hundred thousand years is not one anybody means. *)
-let too_long = 3_155_760_000_000_000
+let day_ms = 86_400_000
+
+(* The longest duration an [Mtime.Span.t] holds, 2^64 - 1 nanoseconds, in
+   whole milliseconds: about 584 years. *)
+let longest_ms =
+  Int64.to_int
+    (Int64.unsigned_div
+       (Mtime.Span.to_uint64_ns Mtime.Span.max_span)
+       1_000_000L)
 
 let duration_of_string s =
   let n = String.length s in
@@ -215,9 +195,12 @@ let duration_of_string s =
   let fail = Error not_a_duration in
   (* A part past the limit is held at one past it, so a product never
      overflows and the sum of the four parts is still said to be too long. *)
-  let scaled v unit = if v > too_long / unit then too_long + 1 else v * unit in
+  let scaled v unit =
+    if v > longest_ms / unit then longest_ms + 1 else v * unit
+  in
   let total ms =
-    if ms > too_long then Error "This duration is too long." else Ok ms
+    if ms > longest_ms then Error "This duration is too long."
+    else Ok (Mtime.Span.of_uint64_ns (Int64.mul (Int64.of_int ms) 1_000_000L))
   in
   (* A time part: at least one of hours, minutes and seconds, in that order. *)
   let time () =
@@ -276,37 +259,38 @@ let duration_of_string s =
           else fail
         else fail
 
-let duration_to_string ms =
-  if ms < 0 then Error "A duration is never negative."
-  else if ms > too_long then Error "This duration is too long."
-  else
-    let days = ms / day_ms and rest = ms mod day_ms in
-    let h = rest / 3_600_000
-    and m = rest / 60_000 mod 60
-    and s = rest / 1000 mod 60
-    and frac = rest mod 1000 in
-    let b = Buffer.create 16 in
-    Buffer.add_char b 'P';
-    if days > 0 then Buffer.add_string b (Printf.sprintf "%dD" days);
-    if rest > 0 || days = 0 then begin
-      Buffer.add_char b 'T';
-      if h > 0 then Buffer.add_string b (Printf.sprintf "%dH" h);
-      if m > 0 then Buffer.add_string b (Printf.sprintf "%dM" m);
-      if s > 0 || frac > 0 || rest = 0 then begin
-        Buffer.add_string b (string_of_int s);
-        if frac > 0 then begin
-          let f = Printf.sprintf "%03d" frac in
-          let len = ref 3 in
-          while Char.equal f.[!len - 1] '0' do
-            decr len
-          done;
-          Buffer.add_char b '.';
-          Buffer.add_string b (String.sub f 0 !len)
-        end;
-        Buffer.add_char b 'S'
-      end
-    end;
-    Ok (Buffer.contents b)
+let duration_to_string span =
+  (* A fraction past the millisecond is dropped, as it is in reading. *)
+  let ms =
+    Int64.to_int (Int64.unsigned_div (Mtime.Span.to_uint64_ns span) 1_000_000L)
+  in
+  let days = ms / day_ms and rest = ms mod day_ms in
+  let h = rest / 3_600_000
+  and m = rest / 60_000 mod 60
+  and s = rest / 1000 mod 60
+  and frac = rest mod 1000 in
+  let b = Buffer.create 16 in
+  Buffer.add_char b 'P';
+  if days > 0 then Buffer.add_string b (Printf.sprintf "%dD" days);
+  if rest > 0 || days = 0 then begin
+    Buffer.add_char b 'T';
+    if h > 0 then Buffer.add_string b (Printf.sprintf "%dH" h);
+    if m > 0 then Buffer.add_string b (Printf.sprintf "%dM" m);
+    if s > 0 || frac > 0 || rest = 0 then begin
+      Buffer.add_string b (string_of_int s);
+      if frac > 0 then begin
+        let f = Printf.sprintf "%03d" frac in
+        let len = ref 3 in
+        while Char.equal f.[!len - 1] '0' do
+          decr len
+        done;
+        Buffer.add_char b '.';
+        Buffer.add_string b (String.sub f 0 !len)
+      end;
+      Buffer.add_char b 'S'
+    end
+  end;
+  Buffer.contents b
 
 (* ------------------------------------------------------------------ *)
 (* UUIDs *)

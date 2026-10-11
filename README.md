@@ -11,7 +11,7 @@ Describe a JSON shape once, or derive it from your type. That one value
 reads a document and reports every problem in it, writes a value, checks
 the bounds it states, and prints itself as JSON Schema 2020-12 and as Zod,
 so a server, a browser and a model's tool call read the same contract.
-Depends on nothing.
+Depends on Ptime and Mtime alone.
 
 ## Install
 
@@ -119,14 +119,15 @@ walk it too.
 
 ## Kinds
 
-Each is a plain OCaml type, with its schema's `format` and its Zod check,
-and accepts no string that check refuses.
+Each is a plain OCaml type, or Ptime's or Mtime's for a time, with its
+schema's `format` and its Zod check, and accepts no string that check
+refuses.
 
 | Kind | OCaml | Reads |
 |---|---|---|
-| `J.instant` | `int`, epoch ms | RFC 3339 `date-time` |
+| `J.instant` | `Ptime.t`, to the ms | RFC 3339 `date-time` |
 | `J.date` | `int * int * int` | `YYYY-MM-DD` |
-| `J.duration` | `int`, ms | ISO 8601, weeks or days to seconds |
+| `J.duration` | `Mtime.Span.t`, to the ms | ISO 8601, weeks or days to seconds |
 | `J.uuid ?version ()` | `string` | RFC 9562 |
 | `J.base64`, `J.base64url` | `string`, the bytes | RFC 4648 |
 | `J.uri` | `string` | RFC 3986, held to the URL standard, IDNA included |
@@ -158,7 +159,8 @@ JSON, an integer's bound past 2^53 -- is printed loosely and listed in
 `[@@deriving wiretype]` writes `<type>_json` (`json` for a type named `t`)
 from records, enums, tagged unions, polymorphic variants, type parameters
 and recursive types. Bounds, defaults, `[@with d]`, read-only, write-only,
-deprecated and examples are attributes, and a doc comment is the doc.
+deprecated and examples are attributes, and a doc comment is the doc. A
+`Ptime.t` is an instant and an `Mtime.Span.t` a duration.
 [Its `.mli`](ppx/ppx_wiretype.mli) lists every attribute.
 
 Each module's `.mli` is its reference.
@@ -176,7 +178,7 @@ Each module's `.mli` is its reference.
 
 | Package | What it is |
 |---|---|
-| `wiretype` | descriptions: reading, writing, bounds, kinds, schemas; links nothing |
+| `wiretype` | descriptions: reading, writing, bounds, kinds, schemas; links Ptime and Mtime alone |
 | `ppx_wiretype` | `[@@deriving wiretype]`, which writes a type's description |
 
 ## Contributing

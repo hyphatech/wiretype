@@ -3,7 +3,7 @@
 // whether zod does, through the checks the schema printer writes for each
 // kind. The server never takes what the browser refuses; the two differ only
 // where the browser is the looser: a URI, an instant past the years 0000 to
-// 9999 once in UTC, and a duration past a hundred thousand years.
+// 9999 once in UTC, and a duration longer than an OCaml Mtime.Span.t holds.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as z from "zod/mini";
@@ -76,8 +76,12 @@ const kinds: [string, z.ZodMiniType, Row[]][] = [
       ["1D", false, false],
       ["PT1.5M", false, false],
       ["P1DT", false, false],
-      ["P36525000D", true, true],
-      ["P36525001D", false, true],
+      ["P213503D", true, true],
+      ["PT18446744073.709S", true, true],
+      ["P213504D", false, true],
+      ["PT18446744073.710S", false, true],
+      ["-PT1S", false, false],
+      ["-P1D", false, false],
       ["P99999999999D", false, true],
       ["P1000000000000W", false, true],
       ["PT3000000000000000H", false, true],

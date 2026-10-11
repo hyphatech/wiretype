@@ -36,6 +36,9 @@
       [String.t], ['a List.t], [Stdlib.Int32.t] -- and the deriver, which reads
       only the name written, reads a module of one of these names declared here
       as the stdlib's: its type is described with [[@with String.json]].
+    - A [Ptime.t] is an instant ([Wiretype.instant]), and an [Mtime.Span.t] or
+      an [Mtime.span] a duration ([Wiretype.duration]); a module of one of these
+      names declared here is read as Ptime's or Mtime's.
     - A {b tuple} is a JSON array of exactly its items, each by its own
       description.
     - Any other type [M.t] is described by [M.json], and [u] by [u_json]: a
@@ -51,8 +54,8 @@
 
     A function, an object type and a variant constructor with more than one
     argument have no JSON shape here, and neither has a case whose one argument
-    is a scalar, a list, an array, an option or a tuple, since a case is an
-    object's members. Each is refused where it is written, with what to write
+    is a scalar, a time, a list, an array, an option or a tuple, since a case is
+    an object's members. Each is refused where it is written, with what to write
     instead -- an inline record, for a case: each refusal is an error at its
     place in the derived code, so an editor shows every one in a file, and the
     rest of the file is still derived. *)

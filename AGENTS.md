@@ -20,7 +20,7 @@ runs `make lint` and `make test` on OCaml 5.5.
 ## Layout
 
 ```
-src/                 wiretype: depends on nothing
+src/                 wiretype: depends on Ptime and Mtime alone
   shape              the GADT a description is, public: the library's promise
   wiretype           the combinators, the kinds, decode and encode
   decode, encode     one pass over text with a description in hand; the writer
@@ -51,10 +51,15 @@ module.
 
 Each rule comes with why it exists and the test that catches a break.
 
-- **The `wiretype` package depends on nothing.** `src/dune` names no library
-  and the package depends on OCaml alone. Why: a contract library is reached for by
-  programs on any stack, and one that brings a framework or a parser with
-  it is one they do not take. Test: `depends on nothing`, in `test_style`.
+- **The `wiretype` package depends on Ptime and Mtime alone.** `src/dune`
+  names `ptime` and `mtime` and no other library, and the package depends
+  on OCaml, Ptime and Mtime alone, which depend on nothing themselves. Why:
+  a contract library is reached for by programs on any stack, and one that
+  brings a framework or a parser with it is one they do not take; but an
+  instant is a `Ptime.t` and a duration an `Mtime.Span.t` wherever a
+  program keeps time, and a kind over any other type is a conversion its
+  user writes at every call. Test: `depends on Ptime and Mtime alone`, in
+  `test_style`.
 - **A member given twice is refused, anywhere in a document.** The wiretype
   library reads no document a second reader could read another way, as I-JSON
   (RFC 7493 §2.3) has it: which of two members of one name wins is not RFC

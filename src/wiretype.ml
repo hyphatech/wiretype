@@ -286,7 +286,7 @@ let grammar ~name format ~parse ~print =
 
 let instant =
   grammar ~name:"instant" S.Date_time ~parse:Grammar.instant_of_string
-    ~print:Grammar.instant_to_string
+    ~print:(fun t -> Ok (Grammar.instant_to_string t))
 
 let date =
   grammar ~name:"date" S.Date ~parse:Grammar.date_of_string
@@ -294,7 +294,7 @@ let date =
 
 let duration =
   grammar ~name:"duration" S.Duration ~parse:Grammar.duration_of_string
-    ~print:Grammar.duration_to_string
+    ~print:(fun d -> Ok (Grammar.duration_to_string d))
 
 let uuid ?version () =
   grammar ~name:"uuid" (S.Uuid version) ~parse:(Grammar.uuid_of_string ?version)

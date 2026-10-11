@@ -1,10 +1,11 @@
-; The schema printer, which needs nothing but the library.
+; The schema printer, which needs nothing but the library and Ptime, the type
+; of an instant.
 
 (test
  (name test_schema)
  (package wiretype)
  (modules test_schema)
- (libraries wiretype alcotest))
+ (libraries wiretype ptime alcotest))
 
 ; Reading, writing, the kinds and the deriver: its descriptions are written
 ; by ppx_wiretype, so it is that package's, and it reads back through yojson,
@@ -14,7 +15,7 @@
  (name test_wiretype)
  (package ppx_wiretype)
  (modules test_wiretype)
- (libraries wiretype yojson alcotest qcheck-core qcheck-alcotest)
+ (libraries wiretype ptime mtime yojson alcotest qcheck-core qcheck-alcotest)
  (preprocess
   (pps ppx_wiretype))
  (deps
@@ -41,6 +42,7 @@
  (libraries alcotest)
  (deps
   ../src/dune
+  ../wiretype.opam
   (glob_files ../src/*.ml)
   (glob_files ../src/*.mli)
   (glob_files ../src/gen/*.ml)

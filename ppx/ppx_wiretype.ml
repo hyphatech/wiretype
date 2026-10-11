@@ -368,6 +368,15 @@ let null_inside (ct : core_type) =
   | Ptyp_constr ({ txt = Lident "unit"; _ }, []) -> Some Unit_inside
   | _ -> None
 
+(* A time is Ptime's or Mtime's, the types Wiretype's kinds hold it in, and
+   is read by the name written, as a stdlib module's type is. *)
+let is_instant = function Ldot (Lident "Ptime", "t") -> true | _ -> false
+
+let is_duration = function
+  | Ldot (Ldot (Lident "Mtime", "Span"), "t") | Ldot (Lident "Mtime", "span") ->
+      true
+  | _ -> false
+
 let rec desc env (ct : core_type) =
   let loc = ct.ptyp_loc in
   match Attribute.get A.ct_with ct with
@@ -382,6 +391,10 @@ let rec desc env (ct : core_type) =
           [%expr Wiretype.string]
       | Ptyp_constr ({ txt = Lident "bool"; _ }, []) -> [%expr Wiretype.bool]
       | Ptyp_constr ({ txt = Lident "unit"; _ }, []) -> [%expr Wiretype.null ()]
+      | Ptyp_constr ({ txt; _ }, []) when is_instant txt ->
+          [%expr Wiretype.instant]
+      | Ptyp_constr ({ txt; _ }, []) when is_duration txt ->
+          [%expr Wiretype.duration]
       (* The stdlib's scalars Wiretype has no description of would be read
          as a type named here or in a module, and fail as an unbound
          [int32_json] or [Int32.json]. *)
@@ -514,6 +527,7 @@ let no_object (ct : core_type) =
         _ )
   | Ptyp_tuple _ ->
       true
+  | Ptyp_constr ({ txt; _ }, []) -> is_instant txt || is_duration txt
   | _ -> false
 
 (* ------------------------------------------------------------------ *)
