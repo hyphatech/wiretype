@@ -41,6 +41,8 @@
  (modules test_style)
  (libraries alcotest)
  (deps
+  ; The shared refusals, read from the block OCAML.md fences as refused.
+  ../OCAML.md
   ../src/dune
   ../wiretype.opam
   (glob_files ../src/*.ml)
