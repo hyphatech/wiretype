@@ -228,15 +228,21 @@ val list : ?min_items:int -> ?max_items:int -> 'a t -> 'a list t
     than [max_items]. *)
 
 val dict :
-  ?min_properties:int -> ?max_properties:int -> 'k t -> 'v t -> ('k * 'v) list t
+  ?min_properties:int ->
+  ?max_properties:int ->
+  key:'k t ->
+  value:'v t ->
+  unit ->
+  ('k * 'v) list t
 (** A JSON object as a map: every member, in the document's order, its name read
-    by the first description as the JSON string it is written as -- {!string},
-    an {!enum}, a kind over text such as {!uuid} -- and its value by the second.
-    A name that is wrong is a problem at the name ({!Problem.Name}). A name
-    given twice is refused both ways: in a document, and in a list written with
-    one twice. A key that is not written as text is refused on writing, and is
-    an error of the schema. Raises [Invalid_argument] where a count is negative,
-    or [min_properties] is more than [max_properties]. *)
+    by [key] as the JSON string it is written as -- {!string}, an {!enum}, a
+    kind over text such as {!uuid} -- and its value by [value]:
+    [J.dict ~key:J.string ~value:(J.uuid ()) ()]. A name that is wrong is a
+    problem at the name ({!Problem.Name}). A name given twice is refused both
+    ways: in a document, and in a list written with one twice. A key that is not
+    written as text is refused on writing, and is an error of the schema. Raises
+    [Invalid_argument] where a count is negative, or [min_properties] is more
+    than [max_properties]. *)
 
 val tuple2 : 'a t -> 'b t -> ('a * 'b) t
 (** A JSON array of exactly two items, each read by its own description: a list

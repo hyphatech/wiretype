@@ -166,7 +166,7 @@ let list ?min_items ?max_items elt =
   counted "list" ~what:"list" ("min_items", min_items) ("max_items", max_items);
   S.List { elt; min_items; max_items }
 
-let dict ?min_properties ?max_properties key value =
+let dict ?min_properties ?max_properties ~key ~value () =
   counted "dict" ~what:"map"
     ("min_properties", min_properties)
     ("max_properties", max_properties);

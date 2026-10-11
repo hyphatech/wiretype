@@ -370,7 +370,7 @@ let nested_options () =
     ~equal:(Option.equal (List.equal options))
     (Some [ None ]);
   back "an optional map of options"
-    (opt (J.dict J.string (J.nullable J.int)))
+    (opt (J.dict ~key:J.string ~value:(J.nullable J.int) ()))
     ~equal:
       (Option.equal
          (List.equal (fun (a, x) (b, y) -> String.equal a b && options x y)))
@@ -729,7 +729,9 @@ let many_problems () =
     "in a map's names"
     (List.init 3 (fun i -> (Printf.sprintf "a%d[name]" i, "malformed"))
     @ [ more ])
-    (said ~max_problems:3 (J.dict (J.uuid ()) J.int) (names 1000))
+    (said ~max_problems:3
+       (J.dict ~key:(J.uuid ()) ~value:J.int ())
+       (names 1000))
 
 type colour = Black | White
 
@@ -950,7 +952,7 @@ let names () =
     [
       ("integer", J.name J.int);
       ("list of string or null", J.name (J.list (J.nullable J.string)));
-      ("map of uuid", J.name (J.dict J.string (J.uuid ())));
+      ("map of uuid", J.name (J.dict ~key:J.string ~value:(J.uuid ()) ()));
       ("colour", J.name colour);
       ("list of itself", J.name (J.rec' nest));
     ]
@@ -1071,10 +1073,10 @@ let malformed_descriptions () =
   refused "a map's count"
     "Wiretype.dict: min_properties is 2 and max_properties 1, which no map \
      meets" (fun () ->
-      J.dict ~min_properties:2 ~max_properties:1 J.string J.int);
+      J.dict ~min_properties:2 ~max_properties:1 ~key:J.string ~value:J.int ());
   refused "a negative count of members"
     "Wiretype.dict: max_properties is -2, and a count is never negative"
-    (fun () -> J.dict ~max_properties:(-2) J.string J.int);
+    (fun () -> J.dict ~max_properties:(-2) ~key:J.string ~value:J.int ());
   Alcotest.(check bool)
     "but bounds that one value meets are bounds" true
     (List.for_all Result.is_ok
@@ -1137,7 +1139,7 @@ let malformed_descriptions () =
   refused "wherever it is: a list's item" (nested "integer or null") (fun () ->
       J.list (J.nullable (J.nullable J.int)));
   refused "a map's value" (nested "integer or null") (fun () ->
-      J.dict J.string (J.nullable (J.nullable J.int)));
+      J.dict ~key:J.string ~value:(J.nullable (J.nullable J.int)) ());
   refused "a member read as a default when absent" (nested "integer or null")
     (fun () ->
       J.Object.map Fun.id
@@ -1935,10 +1937,12 @@ let unwritable () =
   refused "a member given twice in any JSON" J.Value.json
     (V.Object [ ("a", V.Array [ V.Object [ ("b", V.Null); ("b", V.Null) ] ]) ])
     "a[0].b repeated_member";
-  refused "a map's name written twice" (J.dict J.string J.int)
+  refused "a map's name written twice"
+    (J.dict ~key:J.string ~value:J.int ())
     [ ("a", 1); ("a", 2) ]
     "[1] repeated_member";
-  refused "a map's name that is no text" (J.dict J.int J.int)
+  refused "a map's name that is no text"
+    (J.dict ~key:J.int ~value:J.int ())
     [ (1, 1) ]
     "[0] name_not_text";
   refused "a description made only to read"
@@ -2123,7 +2127,7 @@ let rec described =
       let (D d) = described r in
       D
         {
-          shape = J.dict J.string d.shape;
+          shape = J.dict ~key:J.string ~value:d.shape ();
           gen =
             map
               (List.mapi (fun i v -> ("k" ^ string_of_int i, v)))
@@ -2262,7 +2266,7 @@ type ledger = {
 [@@deriving wiretype]
 
 let dicts () =
-  let scores = J.dict J.string J.int in
+  let scores = J.dict ~key:J.string ~value:J.int () in
   Alcotest.(check (result (list (pair string int)) reject))
     "read, in the document's order"
     (Ok [ ("b", 2); ("a", 1) ])
@@ -2289,16 +2293,20 @@ let dicts () =
   Alcotest.(check (list problem))
     "a name its kind refuses, at the name"
     [ ("nope[name]", "malformed") ]
-    (problems {|{"nope":true}|} (J.dict (J.uuid ()) J.bool));
+    (problems {|{"nope":true}|} (J.dict ~key:(J.uuid ()) ~value:J.bool ()));
   Alcotest.(check (list problem))
     "a name that is not a word, and a value wrong beside it"
     [ ("purple[name]", "unknown_word"); ("white_side", "unexpected_type") ]
-    (problems {|{"purple":1,"white_side":"x"}|} (J.dict side_json J.int));
+    (problems {|{"purple":1,"white_side":"x"}|}
+       (J.dict ~key:side_json ~value:J.int ()));
   Alcotest.(check (list problem))
     "a name too long"
     [ ("abc[name]", "too_long") ]
-    (problems {|{"abc":1}|} (J.dict (J.string_bounded ~max_length:2 ()) J.int));
-  let bounded = J.dict ~min_properties:1 ~max_properties:2 J.string J.int in
+    (problems {|{"abc":1}|}
+       (J.dict ~key:(J.string_bounded ~max_length:2 ()) ~value:J.int ()));
+  let bounded =
+    J.dict ~min_properties:1 ~max_properties:2 ~key:J.string ~value:J.int ()
+  in
   Alcotest.(check (list problem))
     "too few"
     [ ("", "too_few") ]
@@ -2309,7 +2317,7 @@ let dicts () =
     (problems {|{"a":1,"b":2,"c":3}|} bounded);
   Alcotest.(check bool)
     "a key not written as text" true
-    (Result.is_error (written (J.dict J.int J.int) [ (1, 1) ]));
+    (Result.is_error (written (J.dict ~key:J.int ~value:J.int ()) [ (1, 1) ]));
   Alcotest.(check (result string string))
     "derived" (Ok {|{"scores":{"x":1},"by_side":{"black_side":0.5}}|})
     (Result.bind
@@ -2335,7 +2343,7 @@ let dicts () =
     {|{"type":"object","additionalProperties":{"type":"integer"}}|} json;
   Alcotest.(check string) "its zod" "z.record(z.string(), z.int())" zod;
   Alcotest.(check (list string)) "no error" [] errors;
-  let json, _, _ = schema (J.dict (J.uuid ()) J.bool) in
+  let json, _, _ = schema (J.dict ~key:(J.uuid ()) ~value:J.bool ()) in
   Alcotest.(check string)
     "its names' kind"
     {|{"type":"object","additionalProperties":{"type":"boolean"},"propertyNames":{"type":"string","format":"uuid"}}|}
@@ -2350,12 +2358,12 @@ let dicts () =
     "z.record(z.string(), z.int()).check(z.refine((o) => Object.keys(o).length \
      >= 1), z.refine((o) => Object.keys(o).length <= 2))"
     zod;
-  let _, zod, _ = schema (J.dict side_json J.int) in
+  let _, zod, _ = schema (J.dict ~key:side_json ~value:J.int ()) in
   Alcotest.(check string)
     "keyed by an enum, only the words it has"
     {|z.partialRecord(z.enum(["black_side", "white_side", "not_a_side"]), z.int())|}
     zod;
-  let _, _, errors = schema (J.dict J.int J.int) in
+  let _, _, errors = schema (J.dict ~key:J.int ~value:J.int ()) in
   Alcotest.(check int) "a key that is not text" 1 (List.length errors)
 
 (* ------------------------------------------------------------------ *)

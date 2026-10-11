@@ -558,7 +558,8 @@ let test_each_is_said () =
   Alcotest.(check bool) "and in a request" true (contains ~sub:"password" json);
   let ctx = S.create () in
   ignore
-    (S.walk ctx S.Encode ~at:"m" (Wiretype.dict Wiretype.int Wiretype.int)
+    (S.walk ctx S.Encode ~at:"m"
+       (Wiretype.dict ~key:Wiretype.int ~value:Wiretype.int ())
       : S.t);
   Alcotest.(check (list string))
     "a map keyed by what is no text"
@@ -732,7 +733,7 @@ let test_a_doc_is_said_of_every_shape () =
     "a map's keys, still text"
     ( {|{"type":"object","additionalProperties":{"type":"integer"},"propertyNames":{"type":"string","enum":["debug","info"],"description":"How much it says."}}|},
       {|z.partialRecord(z.enum(["debug", "info"]), z.int())|} )
-    (printed (Wiretype.dict level Wiretype.int));
+    (printed (Wiretype.dict ~key:level ~value:Wiretype.int ()));
   let priced =
     Wiretype.Object.map ~kind:"priced" (fun price level -> (price, level))
     |> Wiretype.Object.mem "price" cents ~enc:fst

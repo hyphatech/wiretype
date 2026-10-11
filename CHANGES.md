@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Breaking: `dict` labels its two descriptions and ends in `()`:
+  `J.dict ~key:J.string ~value:(J.uuid ()) ()`, where
+  `J.dict J.string (J.uuid ())` and `J.dict (J.uuid ()) J.string` both
+  compiled as a `(string * string) list t`, the one reading a uuid's
+  values and the other its names. The `()` is what lets
+  `?min_properties` and `?max_properties` be left out. The deriver
+  writes the new call.
+
 - A description that comes back to itself before it reads anything --
   `let rec t = lazy (J.rec' t)`, or through a `map` or an `any` -- is
   refused at its place, by `decode` as `malformed` and by `encode` as

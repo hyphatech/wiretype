@@ -475,7 +475,12 @@ and dict env (ct : core_type) bounds =
     ->
       B.pexp_apply ~loc
         (B.evar ~loc "Wiretype.dict")
-        (bounds @ [ (Nolabel, desc env k); (Nolabel, desc env v) ])
+        (bounds
+        @ [
+            (Labelled "key", desc env k);
+            (Labelled "value", desc env v);
+            (Nolabel, B.eunit ~loc);
+          ])
   | _ ->
       Location.raise_errorf ~loc
         "wiretype: [@dict] describes a (key * value) list, and this is not \
