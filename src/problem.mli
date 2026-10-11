@@ -29,7 +29,11 @@ type code =
   | Unknown_member
       (** a member that an object which refuses unknown ones does not have *)
   | Repeated_member  (** a member given twice (RFC 7493 §2.3) *)
-  | Malformed  (** a string its kind cannot read: a date, an id *)
+  | Malformed
+      (** a value of the right sort that its description still refuses -- a
+          string a kind cannot read, a date or an id, or any value a kind turns
+          away -- or anything at all where the description reads nothing: an
+          object, a case or a map made only to write *)
   | Too_many_problems
       (** more than the limit: the last of the list, at the document, after the
           first found; the rest of the text is not read *)
