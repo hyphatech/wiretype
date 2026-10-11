@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.3.0 (2026-10-11)
 
 - Breaking: `instant` is a `Ptime.t t` and `duration` an `Mtime.Span.t t`,
   where each was an `int t` of milliseconds, an `int` that said neither
