@@ -1,11 +1,11 @@
-; The schema printer, which needs nothing but the library and Ptime, the type
-; of an instant.
+; The schema printer, which needs nothing but the library, Ptime, the type
+; of an instant, and Mtime's clock, which times a walk.
 
 (test
  (name test_schema)
  (package wiretype)
  (modules test_schema)
- (libraries wiretype ptime alcotest))
+ (libraries wiretype ptime mtime mtime.clock alcotest))
 
 ; Reading, writing, the kinds and the deriver: its descriptions are written
 ; by ppx_wiretype, so it is that package's, and it reads back through yojson,
@@ -15,7 +15,15 @@
  (name test_wiretype)
  (package ppx_wiretype)
  (modules test_wiretype)
- (libraries wiretype ptime mtime yojson alcotest qcheck-core qcheck-alcotest)
+ (libraries
+  wiretype
+  ptime
+  mtime
+  mtime.clock
+  yojson
+  alcotest
+  qcheck-core
+  qcheck-alcotest)
  (preprocess
   (pps ppx_wiretype))
  (deps
@@ -41,12 +49,9 @@
  (modules test_style)
  (libraries alcotest)
  (deps
-  ; The shared refusals, read from the block OCAML.md fences as refused.
+  ; The shared refusals, read from the blocks OCAML.md fences, and every
+  ; directory the build reads, each held to them by what its dune builds.
   ../OCAML.md
-  ../src/dune
   ../wiretype.opam
-  (glob_files ../src/*.ml)
-  (glob_files ../src/*.mli)
-  (glob_files ../src/gen/*.ml)
-  (glob_files ../ppx/*.ml)
-  (glob_files ../ppx/*.mli)))
+  (glob_files_rec ../dune)
+  (glob_files_rec ../*.{ml,mli})))

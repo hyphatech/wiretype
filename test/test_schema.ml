@@ -662,10 +662,14 @@ let test_a_component_is_walked_once () =
       |> Wiretype.Object.finish
   in
   let deep = chain 24 in
-  let start = Sys.time () in
+  let counter = Mtime_clock.counter () in
   let ctx, _ = walked ~dir:S.Decode deep in
   Alcotest.(check int) "every link" 24 (List.length (S.components ctx));
-  Alcotest.(check bool) "at once" true (Sys.time () -. start < 0.5)
+  Alcotest.(check bool)
+    "at once" true
+    (Mtime.Span.is_shorter
+       (Mtime_clock.count counter)
+       ~than:Mtime.Span.(500 * ms))
 
 (* ------------------------------------------------------------------ *)
 (* Docs *)

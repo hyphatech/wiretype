@@ -865,14 +865,16 @@ let unions () =
     ^ String.concat "" (List.init n (fun _ -> {|,"z":1|}))
     ^ "}"
   in
-  let start = Sys.time () in
+  let counter = Mtime_clock.counter () in
   let found =
     match J.decode ~max_problems:n event many with
     | Ok _ -> 0
     | Error ps -> List.length ps
   in
   Alcotest.(check int) "every member nobody describes" n found;
-  Alcotest.(check bool) "read in linear time" true (Sys.time () -. start < 1.)
+  Alcotest.(check bool)
+    "read in linear time" true
+    (Mtime.Span.is_shorter (Mtime_clock.count counter) ~than:Mtime.Span.s)
 
 (* A description that can mean nothing is refused where it is built. *)
 (* A value read and written through any JSON, a tuple of four, an object
@@ -1460,12 +1462,16 @@ let ipv6_rows =
 (* A label is decoded in time that grows with the square of its length, so
    one longer than DNS allows, 63 octets, is refused before it is decoded. *)
 let long_label () =
-  let start = Sys.time () in
+  let counter = Mtime_clock.counter () in
   let uri = "https://xn--" ^ String.make 20_000 'a' ^ ".com/" in
   Alcotest.(check bool)
     "refused" false
     (Result.is_ok (J.decode J.uri (V.to_string (V.String uri))));
-  Alcotest.(check bool) "at once" true (Sys.time () -. start < 0.05)
+  Alcotest.(check bool)
+    "at once" true
+    (Mtime.Span.is_shorter
+       (Mtime_clock.count counter)
+       ~than:Mtime.Span.(50 * ms))
 
 let kind_rows name shape rows () =
   List.iter
@@ -2475,13 +2481,17 @@ let code_points s =
   in
   go 0 []
 
+(* A line of Unicode's data files with its comment, from a [#] on, cut. *)
+let without_comment line =
+  match String.index_opt line '#' with
+  | Some i -> String.sub line 0 i
+  | None -> line
+
 let not_nfc =
   lazy
     (List.filter_map
        (fun line ->
-         match
-           String.split_on_char ';' (List.hd (String.split_on_char '#' line))
-         with
+         match String.split_on_char ';' (without_comment line) with
          | [ range; prop; value ]
            when String.equal (String.trim prop) "NFC_QC"
                 && List.mem (String.trim value) [ "N"; "M" ] ->
@@ -2502,9 +2512,7 @@ let statuses =
   lazy
     (List.filter_map
        (fun line ->
-         match
-           String.split_on_char ';' (List.hd (String.split_on_char '#' line))
-         with
+         match String.split_on_char ';' (without_comment line) with
          | range :: status :: _ when not (String.equal (String.trim range) "")
            ->
              let range = String.trim range in
@@ -2585,7 +2593,7 @@ let idna_rows () =
   let refused = ref 0 and taken = ref 0 in
   List.iter
     (fun line ->
-      let line = List.hd (String.split_on_char '#' line) in
+      let line = without_comment line in
       match List.map String.trim (String.split_on_char ';' line) with
       | source :: unicode :: ustatus :: ascii_n :: astatus :: _ ->
           let source = unescape source in

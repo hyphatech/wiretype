@@ -25,7 +25,9 @@ let range s =
   match String.split_on_char '.' s with
   | [ a ] -> (hex a, hex a)
   | [ a; ""; b ] -> (hex a, hex b)
-  | _ -> failwith ("not a range: " ^ s)
+  | _ ->
+      prerr_endline ("not a range: " ^ s);
+      exit 2
 
 (* Every range whose fields [keep] answers [Some v] for, as (lo, hi, v). *)
 let ranges file keep =
