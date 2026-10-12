@@ -973,35 +973,55 @@ let only_itself () =
   let write name shape v expected =
     Alcotest.(check (result string string)) name expected (written shape v)
   in
-  let rec bare = lazy (J.rec' bare) in
-  read "itself alone is read as nothing" (J.rec' bare) "1"
+  (* Each comes back to itself only so many times before it reads a number:
+     far more than any description goes through, so it is refused as one that
+     is only itself, while a reader that went round for ever reads the number
+     and fails here rather than hanging the suite. *)
+  let times = 100_000 in
+  let rec bare n = if n = 0 then J.int else J.rec' (lazy (bare (n - 1))) in
+  read "itself alone is read as nothing" (bare times) "1"
     (Error
        "the document: This is described only as itself, which reads nothing. \
         (malformed)");
-  write "nor written" (J.rec' bare) 1
+  write "nor written" (bare times) 1
     (Error
        "the value: This is described only as itself, which writes nothing. \
         (unspellable)");
-  let rec mapped = lazy (J.map ~dec:Fun.id ~enc:Fun.id (J.rec' mapped)) in
-  read "through a map" (J.rec' mapped) "1"
-    (Error
-       "the document: This is described only as itself, which reads nothing. \
-        (malformed)");
-  write "through a map, written" (J.rec' mapped) 1
-    (Error
-       "the value: This is described only as itself, which writes nothing. \
-        (unspellable)");
-  let rec sorts =
-    lazy
-      (J.any ~dec_number:(J.rec' sorts)
-         ~dec_array:(J.map ~dec:List.length (J.list (J.rec' sorts)))
-         ~enc:(fun _ -> J.rec' sorts)
-         ())
+  let rec mapped n =
+    if n = 0 then J.int
+    else J.map ~dec:Fun.id ~enc:Fun.id (J.rec' (lazy (mapped (n - 1))))
   in
-  read "inside what it reads" (J.rec' sorts) "[1]"
+  read "through a map" (mapped times) "1"
+    (Error
+       "the document: This is described only as itself, which reads nothing. \
+        (malformed)");
+  write "through a map, written" (mapped times) 1
+    (Error
+       "the value: This is described only as itself, which writes nothing. \
+        (unspellable)");
+  let rec sorts n =
+    if n = 0 then J.int
+    else
+      let next = lazy (sorts (n - 1)) in
+      J.any ~dec_number:(J.rec' next)
+        ~dec_array:(J.map ~dec:List.length (J.list (J.rec' next)))
+        ~enc:(fun _ -> J.rec' next)
+        ()
+  in
+  read "inside what it reads" (sorts times) "[1]"
     (Error
        "[0]: This is described only as itself, which reads nothing. (malformed)");
-  write "through a value of several sorts" (J.rec' sorts) 1
+  write "through a value of several sorts" (sorts times) 1
+    (Error
+       "the value: This is described only as itself, which writes nothing. \
+        (unspellable)");
+  (* Reached only once the bounded ones above are refused. *)
+  let rec cycle = lazy (J.rec' cycle) in
+  read "one that comes back to itself for ever" (J.rec' cycle) "1"
+    (Error
+       "the document: This is described only as itself, which reads nothing. \
+        (malformed)");
+  write "nor written, for ever" (J.rec' cycle) 1
     (Error
        "the value: This is described only as itself, which writes nothing. \
         (unspellable)");
