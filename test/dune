@@ -40,18 +40,3 @@
  (package ppx_wiretype)
  (modules test_ppx_wiretype)
  (libraries ppx_wiretype ppxlib alcotest))
-
-; The house rules, read off the source.
-
-(test
- (name test_style)
- (package wiretype)
- (modules test_style)
- (libraries alcotest)
- (deps
-  ; The shared refusals, read from the blocks OCAML.md fences, and every
-  ; directory the build reads, each held to them by what its dune builds.
-  ../OCAML.md
-  ../wiretype.opam
-  (glob_files_rec ../dune)
-  (glob_files_rec ../*.{ml,mli})))

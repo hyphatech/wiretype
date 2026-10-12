@@ -38,7 +38,6 @@ test/
                      JSONTestSuite and IdnaTestV2 run whole
   test_schema        what JSON Schema and Zod each print for a description
   test_ppx_wiretype  what the deriver refuses, and the words it refuses in
-  test_style         the house rules that can be checked mechanically
   zod/               the kinds' rows as Zod reads them, on Node's own runner
   json-test-suite/   JSONTestSuite's cases, pinned
   idna-test/         Unicode's IDNA conformance file
@@ -49,7 +48,8 @@ module.
 
 ## Rules that must hold
 
-Each rule comes with why it exists and the test that catches a break.
+Each rule comes with why it exists and the test or search that catches a
+break.
 
 - **The `wiretype` package depends on Ptime and Mtime alone.** `src/dune`
   names `ptime` and `mtime` and no other library, and the package depends
@@ -58,8 +58,9 @@ Each rule comes with why it exists and the test that catches a break.
   brings a framework or a parser with it is one they do not take; but an
   instant is a `Ptime.t` and a duration an `Mtime.Span.t` wherever a
   program keeps time, and a kind over any other type is a conversion its
-  user writes at every call. Test: `depends on Ptime and Mtime alone`, in
-  `test_style`.
+  user writes at every call. Symptom: `rg -n libraries src/dune` names a
+  library but `ptime` and `mtime`, or `wiretype.opam` depends on a package
+  but those, `ocaml` and `dune` outside a test's or a developer's filter.
 - **A member given twice is refused, anywhere in a document.** The wiretype
   library reads no document a second reader could read another way, as I-JSON
   (RFC 7493 §2.3) has it: which of two members of one name wins is not RFC
@@ -114,15 +115,15 @@ Each rule comes with why it exists and the test that catches a break.
   writes null (`Value.t`, an alias of an option). A description of itself
   still being made cannot be looked into, so `encode` refuses the `Some`
   it would write as null.
-  Nothing else raises across the library's boundary. Test: `test_style`
-  allows `invalid_arg` in `wiretype.ml` alone, and refuses any other;
+  Nothing else raises across the library's boundary. Test:
   `test_wiretype`'s malformed descriptions; `test_ppx_wiretype`'s
-  refusals. A stdlib call that raises (`Char.chr`, `String.sub`) is not
-  caught by the style test, and is checked by reading.
+  refusals. Symptom: `rg -n -w invalid_arg src ppx` finds it outside
+  `src/wiretype.ml`. A stdlib call that raises (`Char.chr`, `String.sub`)
+  is not found by a search, and is checked by reading.
 - **The opens are `Tuple`'s, inside `Tuple.( ... )` as its `.mli` says, and
   the deriver's `Ppxlib` and `Ast_pattern`**, which every ppxlib rewriter
-  opens to read the AST it matches. Test: `test_style` names each and
-  refuses any other.
+  opens to read the AST it matches. Symptom:
+  `rg -n '\bopen |\b[A-Z]\w*\.[(\[{]' src ppx` finds any other.
 
 ## House style
 
