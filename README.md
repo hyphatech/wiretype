@@ -4,6 +4,7 @@
 [![release](https://img.shields.io/github/v/release/hyphatech/wiretype?label=release)](https://github.com/hyphatech/wiretype/releases)
 [![license](https://img.shields.io/github/license/hyphatech/wiretype)](LICENSE)
 ![OCaml 5.5+](https://img.shields.io/badge/OCaml-5.5%2B-EC6813?logo=ocaml&logoColor=white)
+[![Hypha Stack](https://img.shields.io/badge/Hypha-Stack-d4a820?labelColor=15120e)](https://hyphatech.io/stack/)
 
 JSON contracts for OCaml.
 
