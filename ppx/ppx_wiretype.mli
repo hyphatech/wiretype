@@ -3,19 +3,20 @@
     [val].
 
     - A {b record} is an object named by the type (a [t] by its module), each
-      field a member. An [option] field may be left out or [null]
-      ([Object.opt_mem]). An option of an option, or of [unit], is refused
-      wherever it is written -- a field, a list's item, a tuple's -- since
-      [None] and [Some None] would both be written [null]; [[@default e]] reads
-      a missing member as [e]; [[@key "k"]] names it on the wire; [[@with d]]
-      describes it by [d] -- the inner type's, on an [option]. [[@min]],
-      [[@max]], [[@multiple_of]] bound an [int], [int64] or [float], and
-      [[@above]], [[@below]] a [float]; [[@min_length]], [[@max_length]] a
-      [string]; [[@min_items]], [[@max_items]] a [list]; a least and a most
-      written as literals with no value between them are refused. [[@read_only]]
-      or [[@write_only]], [[@wiretype.deprecated]] and [[@examples [...]]] are
-      what a document says of it, and a field's doc comment is its doc, as the
-      type's is the object's, the enum's or the union's.
+      field a member; one with parameters is named only by [[@@kind]]. An
+      [option] field may be left out or [null] ([Object.opt_mem]). An option of
+      an option, or of [unit], is refused wherever it is written -- a field, a
+      list's item, a tuple's -- since [None] and [Some None] would both be
+      written [null]; [[@default e]] reads a missing member as [e]; [[@key "k"]]
+      names it on the wire; [[@with d]] describes it by [d] -- the inner type's,
+      on an [option]. [[@min]], [[@max]], [[@multiple_of]] bound an [int],
+      [int64] or [float], and [[@above]], [[@below]] a [float]; [[@min_length]],
+      [[@max_length]] a [string]; [[@min_items]], [[@max_items]] a [list]; a
+      least and a most written as literals with no value between them are
+      refused. [[@read_only]] or [[@write_only]], [[@wiretype.deprecated]] and
+      [[@examples [...]]] are what a document says of it, and a field's doc
+      comment is its doc, as the type's is the object's, the enum's or the
+      union's.
     - A {b variant} of constant constructors is an enum, a word per constructor:
       its name with the first letter lowered, or [[@name "w"]].
     - A {b variant} with arguments is a union on a tag -- ["type"], or
@@ -25,12 +26,16 @@
     - [[@@rename_all camel]], [kebab] or [snake] (the default) spells every
       member and word from its OCaml name; a trailing [_] after a keyword --
       [as_] -- is dropped. [[@@kind "k"]] names the object.
-    - A type {b parameter} ['a] is an argument, its description, in order; a
-      type of the group that refers to itself is described through
-      [Wiretype.rec']. A recursive type with no parameter is built as its module
-      loads, so its description may be shared between domains; one with
-      parameters is a function, each of whose descriptions is built a level at a
-      time as it is first read, written or walked.
+    - A type {b parameter} ['a] is an argument, its description, in order. A
+      type with parameters has no kind unless [[@@kind]] gives it one, so a
+      schema writes it where it is used -- ['a page] a page of users in one
+      answer and of orders in another -- since a kind names one component, and
+      two arguments under one are [Wiretype.Schema.Kind_shared]. A type of the
+      group that refers to itself is described through [Wiretype.rec']. A
+      recursive type with no parameter is built as its module loads, so its
+      description may be shared between domains; one with parameters is a
+      function, each of whose descriptions is built a level at a time as it is
+      first read, written or walked.
     - An [int], [int64], [float], [string] and [bool] are their own
       descriptions, and [unit] is [null]; a [list] and an [array] are a JSON
       array, and an [option] is its type or [null]. An [int32], a [nativeint], a

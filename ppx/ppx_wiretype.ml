@@ -1095,10 +1095,13 @@ let body env ~code_path (td : type_declaration) =
     | None -> Snake
   in
   let name = td.ptype_name.txt in
+  (* A type with parameters is one description per argument, and a kind
+     names one: it is written where it is used unless [@@kind] names it. *)
   let kind =
-    match Attribute.get A.kind td with
-    | Some k -> Some k
-    | None ->
+    match (Attribute.get A.kind td, td.ptype_params) with
+    | Some k, _ -> Some k
+    | None, _ :: _ -> None
+    | None, [] ->
         Some (if String.equal name "t" then module_name code_path else name)
   in
   let doc = doc_of td.ptype_attributes in

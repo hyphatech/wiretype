@@ -1728,6 +1728,9 @@ type negated = Neg of { x : negated } | Lit of { pad : string }
 type 'a boxed = { inside : 'a; count : int }
 [@@rename_all camel] [@@deriving wiretype]
 
+type 'a labelled = { label : string; held : 'a }
+[@@kind "labelled"] [@@deriving wiretype]
+
 (* A union of expressions, each through the other: a group with no
    parameters whose types refer to each other. *)
 type expr = Num of { n : int } | Add of operands
@@ -1984,6 +1987,19 @@ let derived_schema () =
     "an enum's doc comment"
     {|{"type":"string","enum":["north","south"],"description":"Which way it faces."}|}
     (V.to_string (J.Schema.Json_schema.of_t facing));
+  let ctx = J.Schema.create () in
+  let walk at d =
+    ignore (J.Schema.walk ctx J.Schema.Encode ~at d : J.Schema.t)
+  in
+  walk "ints" (boxed_json J.int);
+  walk "texts" (boxed_json J.string);
+  Alcotest.(check (list string))
+    "a parameterised type, twice with two arguments, in each place it is" []
+    (List.map J.Schema.error_to_string (J.Schema.errors ctx)
+    @ List.map fst (J.Schema.components ctx));
+  Alcotest.(check string)
+    "and named only by [@@kind]" "labelled"
+    (J.name (labelled_json J.int));
   let ctx = J.Schema.create () in
   let steer = J.Schema.walk ctx J.Schema.Encode ~at:"steer" steer_json in
   Alcotest.(check bool)

@@ -25,6 +25,14 @@
   expanded to the same depth inside every component, and past a hundred
   kinds each inside the last -- reached only by one that makes a new
   kind at every level -- the walk prints any JSON and reports it.
+- Breaking: the deriver gives a type with parameters no kind unless
+  `[@@kind]` names it, where it was named by the type whatever its
+  arguments, so `type 'a page` used as `string page` and `int page` in
+  one document was `kind_shared` and both printed as one `PageSchema`.
+  Each use is now written where it is (`users: z.object({ items:
+  z.array(z.string()), ... })`), and `Wiretype.name` of one is `object`.
+  A recursive type with parameters is expanded as far as any recursion
+  with no kind, unless `[@@kind]` names it.
 
 ## 0.3.0 (2026-10-11)
 
