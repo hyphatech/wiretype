@@ -2417,6 +2417,17 @@ let dicts () =
     "a name written twice" true
     (Result.is_error (written scores [ ("a", 1); ("a", 2) ]));
   Alcotest.(check (list problem))
+    "a name its key spells as another given before it, which writing refuses"
+    [ ("01890A5D-AC96-7A3B-9E5A-5F1C2A7B8C9D", "repeated_member") ]
+    (problems
+       {|{"01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d":1,"01890A5D-AC96-7A3B-9E5A-5F1C2A7B8C9D":2}|}
+       (J.dict ~key:(J.uuid ()) ~value:J.int ()));
+  Alcotest.(check (list problem))
+    "and an instant at another offset"
+    [ ({|["2026-01-01T01:00:00+01:00"]|}, "repeated_member") ]
+    (problems {|{"2026-01-01T00:00:00Z":1,"2026-01-01T01:00:00+01:00":2}|}
+       (J.dict ~key:J.instant ~value:J.int ()));
+  Alcotest.(check (list problem))
     "not an object"
     [ ("", "unexpected_type") ]
     (problems "[]" scores);

@@ -10,6 +10,10 @@
   where it was built on first use, and two domains reading it first at
   once raised `Lazy.Undefined`. `rec'` says to force a hand-written one
   before sharing it between domains.
+- A map whose key is read in more than one spelling -- a `uuid` in
+  either case, an `instant` at any offset -- refuses a name that spells a
+  key already given as `repeated_member`, as the map's odoc says, where
+  it read both, and `encode` then refused the map it had read.
 
 ## 0.3.0 (2026-10-11)
 

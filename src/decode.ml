@@ -909,7 +909,9 @@ and list : type a. st -> path -> int -> a S.elements -> a list option =
 
 (* A map's members in the document's order, each value at its member and
    each name read by the key's description, what is wrong with a name said
-   at the name. A name given twice is refused, as any object's is. *)
+   at the name. A name given twice is refused, as any object's is, and so is
+   one read as a key another was, which is written as one name: a kind
+   reads a key in more than one spelling -- a UUID in either case. *)
 and dict : type k v. st -> path -> int -> (k, v) S.dict -> (k * v) list option =
  fun st path depth d ->
   enter st path depth;
@@ -918,7 +920,18 @@ and dict : type k v. st -> path -> int -> (k, v) S.dict -> (k * v) list option =
   let items = ref [] and failed = ref false and n = ref 0 in
   (if Char.equal (peek st) '}' then st.i <- st.i + 1
    else
-     let rec loop names =
+     (* What each key read is written as, where that may be another name
+        than the one read: text is written as it is read. *)
+     let spelling k =
+       match d.key with
+       | S.String _ -> None
+       | _ -> Result.to_option (Encode.run d.key k)
+     in
+     let repeated at =
+       report st at P.Repeated_member "This member is given more than once.";
+       skip st at (depth + 1)
+     in
+     let rec loop names spellings =
        ws st;
        if not (Char.equal (peek st) '"') then syntax st path "a member's name";
        let name = string_ st path ~keep:true in
@@ -926,28 +939,35 @@ and dict : type k v. st -> path -> int -> (k, v) S.dict -> (k * v) list option =
        if not (Char.equal (peek st) ':') then syntax st path "a ':'";
        st.i <- st.i + 1;
        let at = P.Member name :: path in
-       let names =
+       let names, spellings =
          if Names.mem name names then (
-           report st at P.Repeated_member "This member is given more than once.";
-           skip st at (depth + 1);
-           names)
+           repeated at;
+           (names, spellings))
          else
            let k = key st (P.Name name :: path) d.key name in
-           (match (k, value st at (depth + 1) d.value) with
-           | Some k, Some v -> items := (k, v) :: !items
-           | _ -> failed := true);
-           incr n;
-           Names.add name names
+           match Option.bind k spelling with
+           | Some w when Names.mem w spellings ->
+               repeated at;
+               (names, spellings)
+           | w ->
+               (match (k, value st at (depth + 1) d.value) with
+               | Some k, Some v -> items := (k, v) :: !items
+               | _ -> failed := true);
+               incr n;
+               ( Names.add name names,
+                 Option.fold ~none:spellings
+                   ~some:(fun w -> Names.add w spellings)
+                   w )
        in
        ws st;
        match peek st with
        | ',' ->
            st.i <- st.i + 1;
-           loop names
+           loop names spellings
        | '}' -> st.i <- st.i + 1
        | _ -> syntax st path "a ',' or a '}'"
      in
-     loop Names.empty);
+     loop Names.empty Names.empty);
   let count k = if k = 1 then "1 member" else Printf.sprintf "%d members" k in
   let within =
     checked st path ()
