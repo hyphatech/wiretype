@@ -9,7 +9,11 @@
 
    A union's members are read in two passes, because its tag may come after
    the members it decides: the first finds where each member's value starts,
-   and the second reads each from there once the tag has chosen a case. *)
+   and the second reads each from there once the tag has chosen a case. The
+   first pass remembers where each object and list it went through ends, so
+   a union inside one finds its own members without going through them
+   again, and a document is gone through a few times however deep its
+   unions nest, never once per union around it. *)
 
 module S = Shape
 module P = Problem
@@ -24,6 +28,9 @@ type st = {
       (** how many problems are held: in [problems], and any set aside *)
   max_depth : int;
   max_problems : int;
+  skipped : (int, int * P.t list) Hashtbl.t;
+      (** each object and list a union's first pass went through, by where it
+          starts: where it ends, and the problems found inside, newest first *)
 }
 
 (* Raised with the problem that ends reading, and caught in [run]: it never
@@ -278,10 +285,32 @@ let spelled f =
 (* ------------------------------------------------------------------ *)
 (* Skipping *)
 
-let rec skip st path depth =
+(* The problems added to [problems] since it was [before]. *)
+let[@tail_mod_cons] rec since before problems =
+  match problems with
+  | ps when ps == before -> []
+  | p :: ps -> p :: since before ps
+  | [] -> []
+
+(* An object or a list gone through by [go]: [remember]ed where a union's
+   first pass goes through it, and passed over where it was gone through
+   before, what was found inside it said again. *)
+let once ~remember st go =
+  match Hashtbl.find_opt st.skipped st.i with
+  | Some (stop, inside) ->
+      st.i <- stop;
+      List.iter (add st) (List.rev inside)
+  | None ->
+      let start = st.i and before = st.problems in
+      go ();
+      if remember then
+        Hashtbl.replace st.skipped start (st.i, since before st.problems)
+
+let rec skip ?(remember = false) st path depth =
   ws st;
   match peek st with
   | '{' ->
+      once ~remember st @@ fun () ->
       enter st path depth;
       st.i <- st.i + 1;
       ws st;
@@ -303,7 +332,7 @@ let rec skip st path depth =
           ws st;
           if not (Char.equal (peek st) ':') then syntax st path "a ':'";
           st.i <- st.i + 1;
-          skip st at (depth + 1);
+          skip ~remember st at (depth + 1);
           ws st;
           match peek st with
           | ',' ->
@@ -314,13 +343,14 @@ let rec skip st path depth =
         in
         members Names.empty
   | '[' ->
+      once ~remember st @@ fun () ->
       enter st path depth;
       st.i <- st.i + 1;
       ws st;
       if Char.equal (peek st) ']' then st.i <- st.i + 1
       else
         let rec items n =
-          skip st (P.Index n :: path) (depth + 1);
+          skip ~remember st (P.Index n :: path) (depth + 1);
           ws st;
           match peek st with
           | ',' ->
@@ -445,6 +475,7 @@ let state ?(max_depth = Encode.max_depth) ?(max_problems = default_max_problems)
     listed = 0;
     max_depth = Int.max 0 (Int.min max_depth max_depth_ceiling);
     max_problems = Int.max 0 max_problems;
+    skipped = Hashtbl.create 0;
   }
 
 (* A value as the JSON it is written as: a union's tag, compared with the
@@ -1249,7 +1280,7 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
            does. *)
         let before = st.problems in
         st.problems <- [];
-        (match skip st at (depth + 1) with
+        (match skip ~remember:true st at (depth + 1) with
         | () -> ()
         | exception Enough ->
             st.problems <- st.problems @ before;

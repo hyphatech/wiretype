@@ -1720,6 +1720,11 @@ type shape = [ `Dot | `Point of placed ] [@@tag "kind"] [@@deriving wiretype]
 type tree = { label : string; children : tree list [@default []] }
 [@@deriving wiretype]
 
+(* A union whose case holds another of itself, as a recursive variant in a
+   request does: a [Neg] around a [Neg] around a [Lit]. *)
+type negated = Neg of { x : negated } | Lit of { pad : string }
+[@@deriving wiretype]
+
 type 'a boxed = { inside : 'a; count : int }
 [@@rename_all camel] [@@deriving wiretype]
 
@@ -1902,6 +1907,41 @@ let derived () =
   Alcotest.(check (result string string))
     "a parameter, and camelCase" (Ok {|{"inside":true,"count":2}|})
     (enc (boxed_json J.bool) { inside = true; count = 2 })
+
+(* A union went through every member of the unions inside it to find its
+   tag, and each of them again, so a document d unions deep was gone
+   through d times: a megabyte under 500 took a second. A member's name is
+   allocated as it is gone through, so what reading allocates counts how
+   often each object was, the same on any machine: twice as deep is twice
+   as much, the tag before what it decides or after it. *)
+let nested_unions () =
+  let nested ~tag_first depth =
+    let opening, closing =
+      if tag_first then ({|{"type":"neg","x":|}, "}")
+      else ({|{"x":|}, {|,"type":"neg"}|})
+    in
+    String.concat "" (List.init depth (fun _ -> opening))
+    ^ {|{"pad":"p","type":"lit"}|}
+    ^ String.concat "" (List.init depth (fun _ -> closing))
+  in
+  let allocated text =
+    let before = Gc.allocated_bytes () in
+    (match J.decode negated_json text with
+    | Ok _ -> ()
+    | Error ps -> Alcotest.fail (P.list_to_string ps));
+    Gc.allocated_bytes () -. before
+  in
+  List.iter
+    (fun tag_first ->
+      let shallow = allocated (nested ~tag_first 200)
+      and deep = allocated (nested ~tag_first 400) in
+      Alcotest.(check bool)
+        (Printf.sprintf "the tag %s: %.0f bytes, then %.0f"
+           (if tag_first then "first" else "last")
+           shallow deep)
+        true
+        (deep < 2.5 *. shallow))
+    [ true; false ]
 
 (* What a derived record says of itself reaches a schema: its doc comments
    and its bounds, and an enum's exact words. *)
@@ -2917,6 +2957,7 @@ let () =
       ( "derived",
         [
           Alcotest.test_case "values" `Quick derived;
+          Alcotest.test_case "unions inside unions" `Quick nested_unions;
           Alcotest.test_case "schema" `Quick derived_schema;
           Alcotest.test_case "options, any JSON and arrays" `Quick
             derived_options;

@@ -1,5 +1,12 @@
 # Changes
 
+## Unreleased
+
+- A union inside a union's member is read in time that grows with the
+  document alone, where each union went through everything inside it
+  again to find its tag: a recursive variant 500 deep around a megabyte
+  of text took a second to read, and takes what one level does.
+
 ## 0.3.0 (2026-10-11)
 
 - Breaking: `instant` is a `Ptime.t t` and `duration` an `Mtime.Span.t t`,
