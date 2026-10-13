@@ -6,6 +6,10 @@
   document alone, where each union went through everything inside it
   again to find its tag: a recursive variant 500 deep around a megabyte
   of text took a second to read, and takes what one level does.
+- The deriver builds a recursive type's description as its module loads,
+  where it was built on first use, and two domains reading it first at
+  once raised `Lazy.Undefined`. `rec'` says to force a hand-written one
+  before sharing it between domains.
 
 ## 0.3.0 (2026-10-11)
 

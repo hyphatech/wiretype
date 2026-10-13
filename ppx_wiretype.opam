@@ -13,6 +13,8 @@ depends: [
   "ocaml" {>= "5.5"}
   "wiretype" {= version}
   "ppxlib" {>= "0.38.0"}
+  "ptime" {with-test & >= "1.2.0"}
+  "mtime" {with-test & >= "2.1.0"}
   "yojson" {with-test & >= "3.0.0"}
   "alcotest" {with-test & >= "1.9.1"}
   "qcheck-core" {with-test & >= "0.91"}

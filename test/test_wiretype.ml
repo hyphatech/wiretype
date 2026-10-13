@@ -1908,6 +1908,18 @@ let derived () =
     "a parameter, and camelCase" (Ok {|{"inside":true,"count":2}|})
     (enc (boxed_json J.bool) { inside = true; count = 2 })
 
+(* A recursive type's description is built as its module loads: one first
+   built on a request is built by every domain reading it at once, and all
+   but one were told [Lazy.Undefined]. *)
+let derived_built () =
+  let built : type a. a J.t -> bool = function
+    | J.Shape.Rec l -> Lazy.is_val l
+    | _ -> false
+  in
+  Alcotest.(check (list bool))
+    "a type that holds itself, and a group of two" [ true; true; true ]
+    [ built tree_json; built expr_json; built operands_json ]
+
 (* A union went through every member of the unions inside it to find its
    tag, and each of them again, so a document d unions deep was gone
    through d times: a megabyte under 500 took a second. A member's name is
@@ -2956,6 +2968,7 @@ let () =
         ] );
       ( "derived",
         [
+          Alcotest.test_case "built as the module loads" `Quick derived_built;
           Alcotest.test_case "values" `Quick derived;
           Alcotest.test_case "unions inside unions" `Quick nested_unions;
           Alcotest.test_case "schema" `Quick derived_schema;

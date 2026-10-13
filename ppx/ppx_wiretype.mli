@@ -27,7 +27,10 @@
       [as_] -- is dropped. [[@@kind "k"]] names the object.
     - A type {b parameter} ['a] is an argument, its description, in order; a
       type of the group that refers to itself is described through
-      [Wiretype.rec'].
+      [Wiretype.rec']. A recursive type with no parameter is built as its module
+      loads, so its description may be shared between domains; one with
+      parameters is a function, each of whose descriptions is built a level at a
+      time as it is first read, written or walked.
     - An [int], [int64], [float], [string] and [bool] are their own
       descriptions, and [unit] is [null]; a [list] and an [array] are a JSON
       array, and an [option] is its type or [null]. An [int32], a [nativeint], a

@@ -287,7 +287,13 @@ val rec' : 'a t Lazy.t -> 'a t
 (** A description of itself. One that comes back to itself before it reads or
     writes anything -- [let rec t = lazy (rec' t)] -- describes nothing:
     {!decode} refuses what is there as {!Problem.Malformed}, and {!encode} the
-    value as {!Unwritable.Unspellable}. *)
+    value as {!Unwritable.Unspellable}.
+
+    The lazy is forced where the description is first read, written or walked,
+    and two domains forcing it at once are told [Lazy.Undefined]: force it
+    before the description is shared between domains --
+    [let () = ignore (Lazy.force t)] where it is defined -- as
+    [[@@deriving wiretype]] does as its module loads. *)
 
 val map :
   ?kind:string ->

@@ -62,6 +62,14 @@
    (= :version))
   (ppxlib
    (>= 0.38.0))
+  (ptime
+   (and
+    :with-test
+    (>= 1.2.0)))
+  (mtime
+   (and
+    :with-test
+    (>= 2.1.0)))
   (yojson
    (and
     :with-test

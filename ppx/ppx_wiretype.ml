@@ -1204,7 +1204,9 @@ let str_type_decl ~ctxt (rec_flag, tds) =
   else
     (* One [let rec]: a type with parameters is a function, which may be
        bound there, and one without is a lazy description, made a
-       description of itself once the group is bound. *)
+       description of itself once the group is bound, and forced then: a
+       lazy first forced on a request is forced by every domain reading at
+       once, and all but one raise [Lazy.Undefined]. *)
     let plain = List.filter (fun td -> List.is_empty td.ptype_params) tds in
     B.pstr_value ~loc Recursive
       (List.map
@@ -1237,6 +1239,20 @@ let str_type_decl ~ctxt (rec_flag, tds) =
                        Wiretype.rec'
                          [%e B.evar ~loc (lazy_name td.ptype_name.txt)]])
                plain);
+          B.pstr_value ~loc Nonrecursive
+            [
+              B.value_binding ~loc
+                ~pat:[%pat? ()]
+                ~expr:
+                  (B.esequence ~loc
+                     (List.map
+                        (fun td ->
+                          [%expr
+                            Stdlib.ignore
+                              (Stdlib.Lazy.force
+                                 [%e B.evar ~loc (lazy_name td.ptype_name.txt)])])
+                        plain));
+            ];
         ])
 
 let sig_type_decl ~ctxt (_rec_flag, tds) =
