@@ -127,6 +127,76 @@ let test_recursion_is_a_reference () =
           [ "$defs"; "Tree"; "properties"; "children"; "items"; "$ref" ]
           doc))
 
+(* Named objects each holding the next, the last the first: a ring of
+   [n], with the member of the one at [opt] made by [opt_mem], which a
+   request may give as null. *)
+type link = { next : link option }
+
+let ring ?(opt = -1) n =
+  let rec links =
+    lazy
+      (Array.init n (fun i ->
+           lazy
+             (let next = Wiretype.rec' (Lazy.force links).((i + 1) mod n) in
+              let link =
+                Wiretype.Object.map ~kind:(Printf.sprintf "link %d" i)
+                  (fun next -> { next })
+              in
+              (if i = opt then
+                 Wiretype.Object.opt_mem "next" next ~enc:(fun l -> l.next) link
+               else
+                 Wiretype.Object.mem "next" (Wiretype.nullable next)
+                   ~enc:(fun l -> l.next)
+                   link)
+              |> Wiretype.Object.finish)))
+  in
+  Array.map (fun l -> Wiretype.rec' l) (Lazy.force links)
+
+(* A ring of named objects ends where it comes back to one being walked,
+   however many are in it, and each is named by what it holds wherever the
+   walk begins: a ring of three was walked as deep as a recursion with no
+   kind is, and the third's member was any JSON. *)
+let test_a_ring_of_kinds_is_references () =
+  let ctx, _ = walked (ring 3).(0) in
+  Alcotest.(check (list string))
+    "a ring of three, each a component"
+    [ "Link0"; "Link1"; "Link2" ]
+    (List.sort String.compare (List.map fst (S.components ctx)));
+  Alcotest.(check (list string)) "and nothing loose" [] (S.loose ctx);
+  let five = ring ~opt:4 5 in
+  List.iter
+    (fun start ->
+      let ctx, _ = walked ~dir:S.Decode five.(start) in
+      Alcotest.(check (list string))
+        (Printf.sprintf "a request's, from link %d, each holding the fifth's"
+           start)
+        [ "Link0Input"; "Link1Input"; "Link2Input"; "Link3Input"; "Link4Input" ]
+        (List.sort String.compare (List.map fst (S.components ctx))))
+    [ 0; 2; 4 ]
+
+(* A kind made anew at every level is a ring that never comes back: the
+   walk ends at a depth no description written by hand reaches, and says
+   so, where giving each component its own depth would never end. *)
+type storey = { below : storey list }
+
+let rec storey i =
+  Wiretype.Object.map ~kind:(Printf.sprintf "storey %d" i) (fun below ->
+      { below })
+  |> Wiretype.Object.mem "below"
+       (Wiretype.list (Wiretype.rec' (lazy (storey (i + 1)))))
+       ~enc:(fun l -> l.below)
+  |> Wiretype.Object.finish
+
+let test_kinds_made_as_walked_end () =
+  List.iter
+    (fun dir ->
+      let ctx, _ = walked ~dir (storey 0) in
+      Alcotest.(check int)
+        "as many components as kinds may be inside each other" 100
+        (List.length (S.components ctx));
+      Alcotest.(check int) "and one place loose" 1 (List.length (S.loose ctx)))
+    [ S.Encode; S.Decode ]
+
 (* ------------------------------------------------------------------ *)
 (* Cases *)
 
@@ -903,6 +973,10 @@ let () =
             test_components_live_where_the_caller_says;
           Alcotest.test_case "recursion is a reference" `Quick
             test_recursion_is_a_reference;
+          Alcotest.test_case "a ring of kinds is references" `Quick
+            test_a_ring_of_kinds_is_references;
+          Alcotest.test_case "kinds made as they are walked end" `Quick
+            test_kinds_made_as_walked_end;
         ] );
       ( "cases",
         [

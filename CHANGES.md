@@ -14,6 +14,17 @@
   either case, an `instant` at any offset -- refuses a name that spells a
   key already given as `repeated_member`, as the map's odoc says, where
   it read both, and `encode` then refused the map it had read.
+- Breaking: a component's schema is walked from its own root wherever
+  it is reached, so kinds that hold each other in a ring of three or more
+  refer to each other, where the third's member back to the first was
+  printed as any JSON (`a: z.optional(z.unknown())`, now
+  `get a() { return z.optional(ASchema); }`) and reported loose. A
+  request's `<Name>Input` is decided the same way, so a ring whose
+  difference is more than three kinds away is named `Input` from
+  wherever it is walked. A recursive description with no kind is
+  expanded to the same depth inside every component, and past a hundred
+  kinds each inside the last -- reached only by one that makes a new
+  kind at every level -- the walk prints any JSON and reports it.
 
 ## 0.3.0 (2026-10-11)
 

@@ -9,7 +9,10 @@
     case, is a component named by it ({!name_of_kind}), and a request's is
     [<Name>Input] exactly where its description differs by direction, at any
     depth: a name follows from the description and the direction alone, never
-    from what else was walked or in what order. Two different schemas under one
+    from what else was walked or in what order. A component is walked from its
+    own root wherever it is reached, so kinds that hold each other in a ring of
+    any length refer to each other, and a recursive description with no kind is
+    expanded to the same depth inside each. Two different schemas under one
     name, docs and all, are an error. *)
 
 type dir = Decode | Encode
@@ -101,9 +104,11 @@ val components : ctx -> (string * t) list
 val loose : ctx -> string list
 (** Every place described loosely: any JSON ({!Wiretype.Value.json}), which says
     nothing of its shape; a recursive description with no kind, where its
-    expansion stops; an integer's bound past 2{^ 53}, which is left out since a
-    double holds it only roughly; and a value of several sorts that none of its
-    descriptions reads. *)
+    expansion stops; a kind inside a hundred others, each inside the last, which
+    only a description that makes a new kind at every level reaches; an
+    integer's bound past 2{^ 53}, which is left out since a double holds it only
+    roughly; and a value of several sorts that none of its descriptions reads.
+*)
 
 (** Why a schema could not be made right. *)
 type error_code =

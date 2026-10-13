@@ -222,60 +222,74 @@ let of_int64 ctx at = exactly ctx at Int64.to_float Int64.of_float Int64.equal
    refers to itself, and never reaches it. *)
 let max_depth = 3
 
+(* A component is walked from its own root, so a recursion through kinds
+   ends where one comes back, and only one that makes a new kind at every
+   level -- from its depth -- would never come back: past this many kinds
+   each inside the last, which no description written by hand nests, what
+   is inside is any JSON, and reported. *)
+let max_kinds_inside = 100
+
 (* Whether a description is walked differently as a request and as an
    answer: it has a member in one alone, or one [opt_mem] made, which a
    request may give as [null] and an answer never writes. A component's
    name follows from this alone -- a request's is [<Name>Input] exactly
    where it holds -- so it never depends on what else was walked. [seen]
    are the kinds already looked into, each once: what one holds was either
-   found to differ, which ended the search, or not. *)
-let rec differs : type a. string list ref -> int -> a S.t -> bool =
- fun seen depth shape ->
+   found to differ, which ended the search, or not. A kind is looked into
+   from its own root, as it is walked, and [kinds] are those around it. *)
+let rec differs : type a. string list ref -> int -> int -> a S.t -> bool =
+ fun seen kinds depth shape ->
   match shape with
   | S.Null _ | S.Bool | S.Int _ | S.Int64 _ | S.Number _ | S.String _ | S.Enum _
   | S.Value ->
       false
-  | S.List l -> differs seen depth l.elt
-  | S.Tuple items -> items_differ seen depth items
-  | S.Dict d -> differs seen depth d.key || differs seen depth d.value
-  | S.Nullable t -> differs seen depth t
-  | S.Map (_, m) -> differs seen depth m.inner
+  | S.List l -> differs seen kinds depth l.elt
+  | S.Tuple items -> items_differ seen kinds depth items
+  | S.Dict d ->
+      differs seen kinds depth d.key || differs seen kinds depth d.value
+  | S.Nullable t -> differs seen kinds depth t
+  | S.Map (_, m) -> differs seen kinds depth m.inner
   | S.Any (_, a) ->
       List.exists
-        (Option.fold ~none:false ~some:(differs seen depth))
+        (Option.fold ~none:false ~some:(differs seen kinds depth))
         [ a.null; a.bool; a.number; a.string; a.array; a.object_ ]
-  | S.Rec l -> depth < max_depth && differs seen (depth + 1) (Lazy.force l)
+  | S.Rec l ->
+      depth < max_depth && differs seen kinds (depth + 1) (Lazy.force l)
   | S.Object (about, o) ->
-      if String.equal about.kind "" then fields_differ seen depth o.fields
-      else if List.exists (String.equal about.kind) !seen then false
+      if String.equal about.kind "" then fields_differ seen kinds depth o.fields
+      else if
+        kinds >= max_kinds_inside || List.exists (String.equal about.kind) !seen
+      then false
       else (
         seen := about.kind :: !seen;
-        fields_differ seen depth o.fields)
+        fields_differ seen (kinds + 1) 0 o.fields)
 
-and items_differ : type t f. string list ref -> int -> (t, f) S.items -> bool =
- fun seen depth items ->
+and items_differ : type t f.
+    string list ref -> int -> int -> (t, f) S.items -> bool =
+ fun seen kinds depth items ->
   match items with
   | S.Items _ -> false
   | S.Item (prev, it) ->
-      items_differ seen depth prev || differs seen depth it.described
+      items_differ seen kinds depth prev
+      || differs seen kinds depth it.described
 
-and fields_differ : type o f. string list ref -> int -> (o, f) S.fields -> bool
-    =
- fun seen depth fields ->
+and fields_differ : type o f.
+    string list ref -> int -> int -> (o, f) S.fields -> bool =
+ fun seen kinds depth fields ->
   match fields with
   | S.Build _ | S.Unread -> false
   | S.Mem (prev, m) ->
       (match m.access with
         | `Read_write -> m.opt
         | `Read_only | `Write_only -> true)
-      || differs seen depth m.shape
-      || fields_differ seen depth prev
+      || differs seen kinds depth m.shape
+      || fields_differ seen kinds depth prev
   | S.Cases (prev, S.Tagged t) ->
-      differs seen depth t.shape
+      differs seen kinds depth t.shape
       || List.exists
-           (fun (S.Case cm) -> fields_differ seen depth cm.obj.fields)
+           (fun (S.Case cm) -> fields_differ seen kinds depth cm.obj.fields)
            t.cases
-      || fields_differ seen depth prev
+      || fields_differ seen kinds depth prev
 
 let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
  fun ctx dir at depth shape ->
@@ -453,7 +467,7 @@ and props : type o f.
 
 and object_ : type o. ctx -> dir -> string -> int -> S.about -> o S.obj -> t =
  fun ctx dir at depth about o ->
-  let build () =
+  let build depth =
     match Encode.find_cases o.fields with
     | None ->
         Object
@@ -493,7 +507,7 @@ and object_ : type o. ctx -> dir -> string -> int -> S.about -> o S.obj -> t =
                    c.cases;
              })
   in
-  if String.equal about.kind "" then build ()
+  if String.equal about.kind "" then build depth
   else
     let base = name_of_kind about.kind in
     if
@@ -508,8 +522,7 @@ and object_ : type o. ctx -> dir -> string -> int -> S.about -> o S.obj -> t =
            about.kind base);
     let name =
       match dir with
-      | Decode when differs (ref []) depth (S.Object (about, o)) ->
-          base ^ "Input"
+      | Decode when differs (ref []) 0 0 (S.Object (about, o)) -> base ^ "Input"
       | Decode | Encode -> base
     in
     let walked (a, d, n) =
@@ -523,9 +536,17 @@ and object_ : type o. ctx -> dir -> string -> int -> S.about -> o S.obj -> t =
       List.exists (String.equal name) ctx.walking
       || List.exists walked ctx.walked
     then Ref name
+    else if List.length ctx.walking >= max_kinds_inside then (
+      report ctx at
+        (Printf.sprintf
+           "a kind inside %d others, each inside the last, any JSON from here"
+           max_kinds_inside);
+      Any)
     else begin
       ctx.walking <- name :: ctx.walking;
-      let schema = build () in
+      (* A component is walked as a document's root is, so its schema and
+         its name are the same wherever it is reached. *)
+      let schema = build 0 in
       ctx.walking <-
         List.filter (fun n -> not (String.equal n name)) ctx.walking;
       register ctx at name schema;
