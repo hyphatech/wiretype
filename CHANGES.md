@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.4.0 (2026-10-13)
 
 - A union inside a union's member is read in time that grows with the
   document alone, where each union went through everything inside it
