@@ -1,11 +1,11 @@
-; The schema printer, which needs nothing but the library, Ptime, the type
-; of an instant, and Mtime's clock, which times a walk.
+; The schema printer, which needs nothing but the library and Ptime, the
+; type of an instant.
 
 (test
  (name test_schema)
  (package wiretype)
  (modules test_schema)
- (libraries wiretype ptime mtime mtime.clock alcotest))
+ (libraries wiretype ptime alcotest))
 
 ; Reading, writing, the kinds and the deriver: its descriptions are written
 ; by ppx_wiretype, so it is that package's, and it reads back through yojson,
@@ -15,15 +15,7 @@
  (name test_wiretype)
  (package ppx_wiretype)
  (modules test_wiretype)
- (libraries
-  wiretype
-  ptime
-  mtime
-  mtime.clock
-  yojson
-  alcotest
-  qcheck-core
-  qcheck-alcotest)
+ (libraries wiretype ptime mtime yojson alcotest qcheck-core qcheck-alcotest)
  (preprocess
   (pps ppx_wiretype))
  (deps

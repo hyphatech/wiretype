@@ -858,23 +858,29 @@ let unions () =
     [ ("type", "repeated_member") ]
     (problems {|{"type":"note","data":1,"type":"x"}|} event);
   (* Each member was said again with every problem before it, which took
-     40,000 members to 23 seconds. *)
-  let n = 50_000 in
-  let many =
-    {|{"type":"note","data":1|}
-    ^ String.concat "" (List.init n (fun _ -> {|,"z":1|}))
-    ^ "}"
+     40,000 members to 23 seconds. What reading allocates counts the work,
+     the same on any machine: twice the members is twice as much. *)
+  let allocated n =
+    let many =
+      {|{"type":"note","data":1|}
+      ^ String.concat "" (List.init n (fun _ -> {|,"z":1|}))
+      ^ "}"
+    in
+    let before = Gc.allocated_bytes () in
+    let found =
+      match J.decode ~max_problems:n event many with
+      | Ok _ -> 0
+      | Error ps -> List.length ps
+    in
+    let after = Gc.allocated_bytes () in
+    Alcotest.(check int) "every member nobody describes" n found;
+    after -. before
   in
-  let counter = Mtime_clock.counter () in
-  let found =
-    match J.decode ~max_problems:n event many with
-    | Ok _ -> 0
-    | Error ps -> List.length ps
-  in
-  Alcotest.(check int) "every member nobody describes" n found;
+  let few = allocated 2_000 and many = allocated 4_000 in
   Alcotest.(check bool)
-    "read in linear time" true
-    (Mtime.Span.is_shorter (Mtime_clock.count counter) ~than:Mtime.Span.s)
+    (Printf.sprintf "read in linear time: %.0f bytes, then %.0f" few many)
+    true
+    (many < 2.5 *. few)
 
 (* A description that can mean nothing is refused where it is built. *)
 (* A value read and written through any JSON, a tuple of four, an object
@@ -1480,18 +1486,24 @@ let ipv6_rows =
   ]
 
 (* A label is decoded in time that grows with the square of its length, so
-   one longer than DNS allows, 63 octets, is refused before it is decoded. *)
+   one longer than DNS allows, 63 octets, is refused before it is decoded.
+   Decoding allocates as it goes, so what reading allocates counts the
+   work, the same on any machine: a label twice as long is twice as much. *)
 let long_label () =
-  let counter = Mtime_clock.counter () in
-  let uri = "https://xn--" ^ String.make 20_000 'a' ^ ".com/" in
+  let allocated length =
+    let uri = "https://xn--" ^ String.make length 'a' ^ ".com/" in
+    let text = V.to_string (V.String uri) in
+    let before = Gc.allocated_bytes () in
+    let read = J.decode J.uri text in
+    let after = Gc.allocated_bytes () in
+    Alcotest.(check bool) "refused" false (Result.is_ok read);
+    after -. before
+  in
+  let short = allocated 2_000 and long = allocated 4_000 in
   Alcotest.(check bool)
-    "refused" false
-    (Result.is_ok (J.decode J.uri (V.to_string (V.String uri))));
-  Alcotest.(check bool)
-    "at once" true
-    (Mtime.Span.is_shorter
-       (Mtime_clock.count counter)
-       ~than:Mtime.Span.(50 * ms))
+    (Printf.sprintf "at once: %.0f bytes, then %.0f" short long)
+    true
+    (long < 2.5 *. short)
 
 let kind_rows name shape rows () =
   List.iter

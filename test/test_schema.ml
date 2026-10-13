@@ -720,7 +720,11 @@ let test_a_kind_is_compared_whole () =
     (List.length (error_lines ctx))
 
 (* A component is walked once however often it is used: a chain of kinds,
-   each using the next twice, took twice as long for each link. *)
+   each using the next twice, took twice as long for each link. What the
+   walk allocates counts the work, the same on any machine. Each kind asks
+   whether any kind inside it differs as a request, so a chain twice as
+   long is up to four times as much, and never the thousands of times a
+   walk per use would be. *)
 let test_a_component_is_walked_once () =
   let rec chain n =
     if n = 0 then Wiretype.null ()
@@ -731,15 +735,19 @@ let test_a_component_is_walked_once () =
       |> Wiretype.Object.mem "b" next ~enc:ignore
       |> Wiretype.Object.finish
   in
-  let deep = chain 24 in
-  let counter = Mtime_clock.counter () in
-  let ctx, _ = walked ~dir:S.Decode deep in
-  Alcotest.(check int) "every link" 24 (List.length (S.components ctx));
+  let allocated links =
+    let description = chain links in
+    let before = Gc.allocated_bytes () in
+    let ctx, _ = walked ~dir:S.Decode description in
+    let after = Gc.allocated_bytes () in
+    Alcotest.(check int) "every link" links (List.length (S.components ctx));
+    after -. before
+  in
+  let short = allocated 12 and long = allocated 24 in
   Alcotest.(check bool)
-    "at once" true
-    (Mtime.Span.is_shorter
-       (Mtime_clock.count counter)
-       ~than:Mtime.Span.(500 * ms))
+    (Printf.sprintf "at once: %.0f bytes, then %.0f" short long)
+    true
+    (long < 4. *. short)
 
 (* ------------------------------------------------------------------ *)
 (* Docs *)
