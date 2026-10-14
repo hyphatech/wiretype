@@ -1,5 +1,3 @@
 _build/
-_opam
 .DS_Store
 node_modules/
-.hypha/

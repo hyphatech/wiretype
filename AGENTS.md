@@ -8,14 +8,16 @@ changing it, human or agent. Users start at [README.md](README.md).
 ## Commands
 
 ```sh
-make setup   # once: local opam switch in ./_opam, all dependencies, and Zod
+make setup   # once: dune's tools (formatter, odoc, language server, Merlin), and Zod
 make test    # every suite, and the kinds' rows through Zod
 make lint    # formatting, odoc, and the release build
 make fmt     # format in place
 ```
 
-The Zod rows need Node 24 or later; `make test-zod` runs them alone. CI
-runs `make lint` and `make test` on OCaml 5.5.
+Only dune is on PATH, 3.24 or later: `dune build` builds the dependencies
+and OCaml itself as it needs them. The Zod rows need Node 24 or later;
+`make test-zod` runs them alone. CI runs `make lint` and `make test` on
+OCaml 5.5, and builds with the oldest versions the opam files allow.
 
 ## Layout
 
