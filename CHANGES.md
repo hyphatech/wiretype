@@ -1,5 +1,15 @@
 # Changes
 
+## Unreleased
+
+- A description of itself is built by the domain that first reaches it,
+  and another reaching it then waits for it, where it was told
+  `Lazy.Undefined` and `decode` and `encode` raised it. A recursive type
+  with parameters, `'a tree`, is built a level at a time as it is first
+  read, so four domains reading one at once raised it at every level
+  none had reached yet; the 0.4.0 fix built only those with none. A
+  hand-written `rec'` need no longer be forced before it is shared.
+
 ## 0.4.0 (2026-10-13)
 
 - A union inside a union's member is read in time that grows with the

@@ -254,7 +254,7 @@ let rec differs : type a. string list ref -> int -> int -> a S.t -> bool =
         (Option.fold ~none:false ~some:(differs seen kinds depth))
         [ a.null; a.bool; a.number; a.string; a.array; a.object_ ]
   | S.Rec l ->
-      depth < max_depth && differs seen kinds (depth + 1) (Lazy.force l)
+      depth < max_depth && differs seen kinds (depth + 1) (Itself.force l)
   | S.Object (about, o) ->
       if String.equal about.kind "" then fields_differ seen kinds depth o.fields
       else if
@@ -379,7 +379,7 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
           "a recursive description with no kind, any JSON from here; give its \
            object a kind";
         Any)
-      else walk_ ctx dir at (depth + 1) (Lazy.force l)
+      else walk_ ctx dir at (depth + 1) (Itself.force l)
 
 and tuple_items : type v f.
     ctx -> dir -> string -> int -> (v, f) S.items -> t list =

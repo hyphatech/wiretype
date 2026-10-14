@@ -290,10 +290,10 @@ val rec' : 'a t Lazy.t -> 'a t
     value as {!Unwritable.Unspellable}.
 
     The lazy is forced where the description is first read, written or walked,
-    and two domains forcing it at once are told [Lazy.Undefined]: force it
-    before the description is shared between domains --
-    [let () = ignore (Lazy.force t)] where it is defined -- as
-    [[@@deriving wiretype]] does as its module loads. *)
+    by whichever domain reaches it first, while another reaching it then waits
+    for it, so a description may be shared between domains from the start. A
+    lazy forced outside the library is forced as OCaml forces it: forced from
+    two domains at once, one is told [Lazy.Undefined]. *)
 
 val map :
   ?kind:string ->

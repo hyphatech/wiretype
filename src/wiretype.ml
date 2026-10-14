@@ -72,7 +72,8 @@ let name t =
      | S.Map (about, m) ->
          if String.equal about.kind "" then name ~inside m.inner else about.kind
      | S.Value -> "JSON"
-     | S.Rec l -> if inside then "itself" else name ~inside:true (Lazy.force l)
+     | S.Rec l ->
+         if inside then "itself" else name ~inside:true (Itself.force l)
   and or_ (about : S.about) default =
     if String.equal about.kind "" then default else about.kind
   in
@@ -215,7 +216,7 @@ let writes_null t =
      | S.Rec l -> (
          (not inside)
          &&
-         match Lazy.force l with
+         match Itself.force l with
          | t -> writes ~inside:true t
          | exception Lazy.Undefined -> false)
      | S.Bool | S.Int _ | S.Int64 _ | S.Number _ | S.String _ | S.Enum _
@@ -499,7 +500,7 @@ module Object = struct
       function
       | S.Object (about, o) -> Ok (about, o)
       | S.Rec l -> (
-          match Lazy.force l with
+          match Itself.force l with
           | t -> object_of t
           | exception Lazy.Undefined -> Error itself)
       | t -> (

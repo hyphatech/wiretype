@@ -1737,6 +1737,11 @@ type tree = { label : string; children : tree list [@default []] }
 type negated = Neg of { x : negated } | Lit of { pad : string }
 [@@deriving wiretype]
 
+(* A recursive type with a parameter, whose description is a new one at
+   every level, each built where a document first reaches it. *)
+type 'a grove = Leaf | Node of { value : 'a; kids : 'a grove list }
+[@@deriving wiretype]
+
 type 'a boxed = { inside : 'a; count : int }
 [@@rename_all camel] [@@deriving wiretype]
 
@@ -1934,6 +1939,86 @@ let derived_built () =
   Alcotest.(check (list bool))
     "a type that holds itself, and a group of two" [ true; true; true ]
     [ built tree_json; built expr_json; built operands_json ]
+
+(* How many of four domains' [read]s raised, each round all four released
+   at once on a description [make] makes fresh, so its every description of
+   itself is still to be built. A race shows only where the domains meet,
+   so the rounds are many; none can raise once each waits. *)
+let raised_across_domains make read =
+  let raised = Atomic.make 0 in
+  for _ = 1 to 300 do
+    let shape = make () in
+    let go = Atomic.make false in
+    let readers =
+      List.init 4 (fun _ ->
+          Domain.spawn (fun () ->
+              while not (Atomic.get go) do
+                Domain.cpu_relax ()
+              done;
+              match read shape with
+              | () -> ()
+              | exception _ -> Atomic.incr raised))
+    in
+    Atomic.set go true;
+    List.iter Domain.join readers
+  done;
+  Atomic.get raised
+
+(* A description of itself is built by the domain that first reaches it,
+   and another reaching it then waits: four domains reading one derived
+   ['a grove] at once were told [Lazy.Undefined] at every level none had
+   reached yet. *)
+let derived_shared () =
+  let deep =
+    let rec go n =
+      if n = 0 then {|{"type":"leaf"}|}
+      else Printf.sprintf {|{"type":"node","value":1,"kids":[%s]}|} (go (n - 1))
+    in
+    go 40
+  in
+  Alcotest.(check int)
+    "no reader raised" 0
+    (raised_across_domains
+       (fun () -> grove_json J.int)
+       (fun grove -> ignore (J.decode grove deep : (_, _) result)))
+
+(* And one written by hand, whichever way it is reached: read, written,
+   walked for a schema, named. *)
+let itself_shared () =
+  let bush () =
+    let bush_of l : bush = Node l
+    and of_bush : bush -> _ = function Node l -> l | Leaf -> [] in
+    let rec bush =
+      lazy
+        (let array =
+           J.map ~dec:bush_of ~enc:of_bush (J.list (J.nullable (J.rec' bush)))
+         in
+         J.any
+           ~dec_null:(J.null (Leaf : bush))
+           ~dec_array:array
+           ~enc:(function
+             | (Leaf : bush) -> J.null (Leaf : bush) | Node _ -> array)
+           ())
+    in
+    J.rec' bush
+  in
+  let rec text n = if n = 0 then "[]" else "[" ^ text (n - 1) ^ "]" in
+  let rec value n : bush =
+    if n = 0 then Node [] else Node [ Some (value (n - 1)) ]
+  in
+  List.iter
+    (fun (name, use) ->
+      Alcotest.(check int) name 0 (raised_across_domains bush use))
+    [
+      ("read", fun b -> ignore (J.decode b (text 40) : (_, _) result));
+      ("written", fun b -> ignore (J.encode b (value 40) : (_, _) result));
+      ( "walked",
+        fun b ->
+          ignore
+            (J.Schema.walk (J.Schema.create ()) J.Schema.Decode ~at:"bush" b
+              : J.Schema.t) );
+      ("named", fun b -> ignore (J.name b : string));
+    ]
 
 (* A union went through every member of the unions inside it to find its
    tag, and each of them again, so a document d unions deep was gone
@@ -2986,6 +3071,8 @@ let () =
           Alcotest.test_case "maps" `Quick dicts;
           Alcotest.test_case "names" `Quick names;
           Alcotest.test_case "described only as itself" `Quick only_itself;
+          Alcotest.test_case "itself, shared between domains" `Quick
+            itself_shared;
           Alcotest.test_case "values, tuples and the pieces" `Quick values;
           Alcotest.test_case "malformed descriptions" `Quick
             malformed_descriptions;
@@ -3008,6 +3095,7 @@ let () =
       ( "derived",
         [
           Alcotest.test_case "built as the module loads" `Quick derived_built;
+          Alcotest.test_case "shared between domains" `Quick derived_shared;
           Alcotest.test_case "values" `Quick derived;
           Alcotest.test_case "unions inside unions" `Quick nested_unions;
           Alcotest.test_case "schema" `Quick derived_schema;

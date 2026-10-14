@@ -7,7 +7,7 @@
  (public_name wiretype)
  (libraries ptime mtime)
  (modules_without_implementation shape)
- (private_modules grammar decode encode powers idna_data))
+ (private_modules grammar decode encode itself powers idna_data))
 
 ; The Unicode properties an internationalised host is checked by, from
 ; Unicode 15.0.0's own files in unicode/.

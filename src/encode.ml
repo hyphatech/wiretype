@@ -157,7 +157,7 @@ and described : type a. Buffer.t -> path -> int -> int -> a S.t -> a -> unit =
       if selves >= max_selves then
         fail path U.Unspellable
           "This is described only as itself, which writes nothing."
-      else described b path depth (selves + 1) (Lazy.force l) v
+      else described b path depth (selves + 1) (Itself.force l) v
 
 (* Any JSON, held to what a reader takes as any description is. *)
 and json b path depth (v : Value.t) =

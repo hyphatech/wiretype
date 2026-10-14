@@ -32,10 +32,10 @@
       answer and of orders in another -- since a kind names one component, and
       two arguments under one are [Wiretype.Schema.Kind_shared]. A type of the
       group that refers to itself is described through [Wiretype.rec']. A
-      recursive type with no parameter is built as its module loads, so its
-      description may be shared between domains; one with parameters is a
-      function, each of whose descriptions is built a level at a time as it is
-      first read, written or walked.
+      recursive type with no parameter is built as its module loads; one with
+      parameters is a function, each of whose descriptions is built a level at a
+      time as it is first read, written or walked. Either may be shared between
+      domains.
     - An [int], [int64], [float], [string] and [bool] are their own
       descriptions, and [unit] is [null]; a [list] and an [array] are a JSON
       array, and an [option] is its type or [null]. An [int32], a [nativeint], a

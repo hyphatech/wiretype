@@ -863,7 +863,7 @@ and described : type a. st -> path -> int -> int -> a S.t -> a option =
           "This is described only as itself, which reads nothing.";
         skip st path depth;
         None)
-      else described st path depth (selves + 1) (Lazy.force l)
+      else described st path depth (selves + 1) (Itself.force l)
 
 and list : type a. st -> path -> int -> a S.elements -> a list option =
  fun st path depth l ->
