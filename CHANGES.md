@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.5.0 (2026-10-14)
 
 - `Value.write`'s documentation says it checks nothing `encode` checks --
   a non-finite number is written `null`, text that is not UTF-8 and a
