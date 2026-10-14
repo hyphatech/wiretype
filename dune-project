@@ -34,7 +34,23 @@
   (alcotest
    (and
     :with-test
-    (>= 1.9.1)))))
+    (>= 1.9.1)))
+  (odoc
+   (and
+    :with-dev-setup
+    (>= 3.2.1)))
+  (merlin
+   (and
+    :with-dev-setup
+    (>= 5.6-504)))
+  (ocaml-lsp-server
+   (and
+    :with-dev-setup
+    (>= 1.24.0)))
+  (ocamlformat
+   (and
+    :with-dev-setup
+    (= 0.29.0)))))
 
 (package
  (name ppx_wiretype)
