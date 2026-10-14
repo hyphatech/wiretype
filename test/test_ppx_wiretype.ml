@@ -259,6 +259,14 @@ let () =
                "type t = { a : int; [@read_only] [@write_only] } [@@deriving \
                 wiretype]"
                "write [@read_only] or [@write_only], not both");
+          Alcotest.test_case "read-only, with nothing to be read as" `Quick
+            (refused "type t = { id : int; [@read_only] } [@@deriving wiretype]"
+               "id is read-only, so a request's is never read; give it \
+                [@default e] to be read as, or make it an option");
+          Alcotest.test_case "read-only, with a default or as an option" `Quick
+            (accepted
+               "type t = { id : int; [@read_only] [@default 0] b : int option \
+                [@read_only] } [@@deriving wiretype]");
           Alcotest.test_case "two constructors written alike" `Quick
             (refused "type t = A | B [@name \"a\"] [@@deriving wiretype]"
                "two constructors are written \"a\"");
@@ -358,6 +366,23 @@ let () =
             (accepted
                "type t = { a : int; [@wiretype.deprecated] b : int } \
                 [@@deriving wiretype]");
+          Alcotest.test_case "OCaml's own deprecation, with a payload" `Quick
+            (accepted
+               "type t = { a : int; [@deprecated \"use b\"] b : int } \
+                [@@deriving wiretype]");
+          Alcotest.test_case "OCaml's own deprecation is not a document's"
+            `Quick (fun () ->
+              List.iter
+                (fun attribute ->
+                  let said =
+                    derived
+                      ("type t = { a : int " ^ attribute
+                     ^ " } [@@deriving wiretype]")
+                  in
+                  Alcotest.(check bool)
+                    attribute false
+                    (contains said "~deprecated:true"))
+                [ "[@deprecated]"; "[@ocaml.deprecated]" ]);
           Alcotest.test_case "a stdlib type by its module's name" `Quick
             (fun () ->
               List.iter
@@ -398,6 +423,12 @@ let () =
                   ( "String.t Option.t [@default \"a\"]",
                     "string option [@default \"a\"]" );
                 ]);
+          Alcotest.test_case "a UUID" `Quick (fun () ->
+              Alcotest.(check bool)
+                "Uuidm.t" true
+                (contains
+                   (derived "type t = { id : Uuidm.t } [@@deriving wiretype]")
+                   "Wiretype.uuid ()"));
           Alcotest.test_case "a type of a module of another name" `Quick
             (fun () ->
               let said =

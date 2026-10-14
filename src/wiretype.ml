@@ -239,24 +239,24 @@ let nullable t =
 
 let rec' l = S.Rec l
 
-let map ?kind ?doc ?dec ?enc inner =
+let map ?kind ?doc ?parse ?print inner =
   S.Map
     ( about ?kind ?doc (),
       {
         format = None;
         inner;
-        dec = Option.map (fun f x -> Ok (f x)) dec;
-        enc = Option.map (fun f x -> Ok (f x)) enc;
+        parse = Option.map (fun f x -> Ok (f x)) parse;
+        print = Option.map (fun f x -> Ok (f x)) print;
       } )
 
-let kind ~name ?doc ?format ~parse ?print inner =
+let kind ~kind ?doc ?format ~parse ?print inner =
   S.Map
-    ( about ~kind:name ?doc (),
+    ( about ~kind ?doc (),
       {
         format;
         inner;
-        dec = Some parse;
-        enc = Option.map (fun print x -> Ok (print x)) print;
+        parse = Some parse;
+        print = Option.map (fun f x -> Ok (f x)) print;
       } )
 
 let any ?kind ?doc ?dec_null ?dec_bool ?dec_number ?dec_string ?dec_array
@@ -275,51 +275,54 @@ let any ?kind ?doc ?dec_null ?dec_bool ?dec_number ?dec_string ?dec_array
 
 (* A kind whose writing can fail as well as its reading. Its [format] says
    what it is, so its doc is left to its user. *)
-let grammar ~name format ~parse ~print =
+let grammar ~kind format ~parse ~print =
   S.Map
-    ( about ~kind:name (),
+    ( about ~kind (),
       {
         format = Some format;
         inner = string;
-        dec = Some parse;
-        enc = Some print;
+        parse = Some parse;
+        print = Some print;
       } )
 
 let instant =
-  grammar ~name:"instant" S.Date_time ~parse:Grammar.instant_of_string
+  grammar ~kind:"instant" S.Date_time ~parse:Grammar.instant_of_string
     ~print:(fun t -> Ok (Grammar.instant_to_string t))
 
 let date =
-  grammar ~name:"date" S.Date ~parse:Grammar.date_of_string
+  grammar ~kind:"date" S.Date ~parse:Grammar.date_of_string
     ~print:Grammar.date_to_string
 
 let duration =
-  grammar ~name:"duration" S.Duration ~parse:Grammar.duration_of_string
+  grammar ~kind:"duration" S.Duration ~parse:Grammar.duration_of_string
     ~print:(fun d -> Ok (Grammar.duration_to_string d))
 
 let uuid ?version () =
-  grammar ~name:"uuid" (S.Uuid version) ~parse:(Grammar.uuid_of_string ?version)
-    ~print:(fun s -> Grammar.uuid_of_string ?version s)
+  grammar ~kind:"uuid" (S.Uuid version) ~parse:(Grammar.uuid_of_string ?version)
+    ~print:(fun u ->
+      (* Any 128 bits are a [Uuidm.t]: one is written only as a UUID it reads. *)
+      let s = Uuidm.to_string u in
+      Result.map (fun _ -> s) (Grammar.uuid_of_string ?version s))
 
 let base64 =
-  grammar ~name:"base64" S.Base64 ~parse:(Grammar.base64_of_string ~url:false)
+  grammar ~kind:"base64" S.Base64 ~parse:(Grammar.base64_of_string ~url:false)
     ~print:(fun b -> Ok (Grammar.base64_to_string ~url:false b))
 
 let base64url =
-  grammar ~name:"base64url" S.Base64url
+  grammar ~kind:"base64url" S.Base64url
     ~parse:(Grammar.base64_of_string ~url:true) ~print:(fun b ->
       Ok (Grammar.base64_to_string ~url:true b))
 
 let uri =
-  grammar ~name:"uri" S.Uri ~parse:Grammar.uri_of_string
+  grammar ~kind:"uri" S.Uri ~parse:Grammar.uri_of_string
     ~print:Grammar.uri_of_string
 
 let ipv4 =
-  grammar ~name:"ipv4" S.Ipv4 ~parse:Grammar.ipv4_of_string
+  grammar ~kind:"ipv4" S.Ipv4 ~parse:Grammar.ipv4_of_string
     ~print:Grammar.ipv4_of_string
 
 let ipv6 =
-  grammar ~name:"ipv6" S.Ipv6 ~parse:Grammar.ipv6_of_string
+  grammar ~kind:"ipv6" S.Ipv6 ~parse:Grammar.ipv6_of_string
     ~print:Grammar.ipv6_of_string
 
 module Object = struct
@@ -335,7 +338,7 @@ module Object = struct
   let enc_only ?kind ?doc () =
     { about = about ?kind ?doc (); unknown = S.Skip; fields = S.Unread }
 
-  let mem ?(doc = "") ?absent ?omit ?enc ?(access = `Read_write)
+  let mem ?(doc = "") ?absent ?omit ?enc ?(access = S.Read_write)
       ?(deprecated = false) ?(examples = []) name shape m =
     {
       m with
@@ -356,7 +359,7 @@ module Object = struct
             } );
     }
 
-  let opt_mem ?(doc = "") ?enc ?(access = `Read_write) ?(deprecated = false)
+  let opt_mem ?(doc = "") ?enc ?(access = S.Read_write) ?(deprecated = false)
       ?(examples = []) name shape m =
     if writes_null shape then
       malformed "Object.opt_mem"
@@ -435,15 +438,36 @@ module Object = struct
             | Some _, None -> Some t.name
             | Some _, Some _ | None, _ -> None))
 
+  (* A read-only member is never read, so one with no [absent] leaves an
+     object that is read with nothing to build it from: the first, if any. *)
+  let rec unbuilt : type o f. (o, f) S.fields -> string option = function
+    | S.Build _ | S.Unread -> None
+    | S.Cases (prev, _) -> unbuilt prev
+    | S.Mem (prev, m) -> (
+        match unbuilt prev with
+        | Some name -> Some name
+        | None -> (
+            match (m.access, m.absent) with
+            | S.Read_only, None -> Some m.name
+            | S.Read_only, Some _ | (S.Read_write | S.Write_only), _ -> None))
+
   let finish m =
     let members, tags = names m.fields in
-    (if read m.fields then
-       match left_out m.fields with
-       | Some name ->
-           malformed "Object.finish"
-             "the member %S is left out by omit and has no absent to be read as"
-             name
-       | None -> ());
+    if read m.fields then (
+      (match left_out m.fields with
+      | Some name ->
+          malformed "Object.finish"
+            "the member %S is left out by omit and has no absent to be read as"
+            name
+      | None -> ());
+      match unbuilt m.fields with
+      | Some name ->
+          malformed "Object.finish"
+            "the member %S is read-only, so a request's is never read, and it \
+             has no absent to be read as; give it one, or describe an object \
+             that is only written with enc_only"
+            name
+      | None -> ());
     (* An object has one union, since the tag that chooses a case is read
        before the members it decides, and every name is one member's: a
        document could hold it only once. *)

@@ -1,13 +1,13 @@
 ; One value describes a shape, reads it, writes it and says what it is -- to
-; a JSON Schema, to zod, or to anybody who walks it. It depends on Ptime and
-; Mtime alone, the types an instant and a duration are.
+; a JSON Schema, to zod, or to anybody who walks it. It depends on Ptime,
+; Mtime and Uuidm alone, the types an instant, a duration and a UUID are.
 
 (library
  (name wiretype)
  (public_name wiretype)
- (libraries ptime mtime)
+ (libraries ptime mtime uuidm)
  (modules_without_implementation shape)
- (private_modules grammar decode encode itself powers idna_data))
+ (private_modules grammar bounds decode encode itself powers idna_data))
 
 ; The Unicode properties an internationalised host is checked by, from
 ; Unicode 15.0.0's own files in unicode/.

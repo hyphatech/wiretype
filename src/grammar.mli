@@ -24,8 +24,8 @@ val uuid_version_number : Shape.uuid_version -> int
 val uuid_pattern : Shape.uuid_version -> string
 
 val uuid_of_string :
-  ?version:Shape.uuid_version -> string -> (string, string) result
-(** Lower-cased. *)
+  ?version:Shape.uuid_version -> string -> (Uuidm.t, string) result
+(** In either case. *)
 
 val base64_of_string : url:bool -> string -> (string, string) result
 val base64_to_string : url:bool -> string -> string

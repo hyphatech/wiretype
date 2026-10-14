@@ -5,6 +5,7 @@ type code =
   | Repeated_member
   | Name_not_text
   | Too_deep
+  | Out_of_bounds
 
 let code_to_string = function
   | Read_only -> "read_only"
@@ -13,6 +14,7 @@ let code_to_string = function
   | Repeated_member -> "repeated_member"
   | Name_not_text -> "name_not_text"
   | Too_deep -> "too_deep"
+  | Out_of_bounds -> "out_of_bounds"
 
 type t = { at : Problem.segment list; code : code; message : string }
 

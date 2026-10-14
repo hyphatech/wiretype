@@ -13,10 +13,15 @@
       [int64] or [float], and [[@above]], [[@below]] a [float]; [[@min_length]],
       [[@max_length]] a [string]; [[@min_items]], [[@max_items]] a [list]; a
       least and a most written as literals with no value between them are
-      refused. [[@read_only]] or [[@write_only]], [[@wiretype.deprecated]] and
-      [[@examples [...]]] are what a document says of it, and a field's doc
-      comment is its doc, as the type's is the object's, the enum's or the
-      union's.
+      refused. [[@read_only]] or [[@write_only]] say which of an answer and a
+      request it is in, and it is neither read in the other nor written in it: a
+      read-only field is never read, so one with no [[@default e]] that is no
+      [option] is refused, since nothing would build it.
+      [[@wiretype.deprecated]] and [[@examples [...]]] are what a document says
+      of it, and a field's doc comment is its doc, as the type's is the
+      object's, the enum's or the union's. OCaml's own [[@deprecated]] is
+      OCaml's, never a document's: a field or a constructor it marks is derived
+      as any other, and what is derived uses it with no alert.
     - A {b variant} of constant constructors is an enum, a word per constructor:
       its name with the first letter lowered, or [[@name "w"]].
     - A {b variant} with arguments is a union on a tag -- ["type"], or
@@ -44,9 +49,10 @@
       [String.t], ['a List.t], [Stdlib.Int32.t] -- and the deriver, which reads
       only the name written, reads a module of one of these names declared here
       as the stdlib's: its type is described with [[@with String.json]].
-    - A [Ptime.t] is an instant ([Wiretype.instant]), and an [Mtime.Span.t] or
-      an [Mtime.span] a duration ([Wiretype.duration]); a module of one of these
-      names declared here is read as Ptime's or Mtime's.
+    - A [Ptime.t] is an instant ([Wiretype.instant]), an [Mtime.Span.t] or an
+      [Mtime.span] a duration ([Wiretype.duration]), and a [Uuidm.t] a UUID
+      ([Wiretype.uuid ()]); a module of one of these names declared here is read
+      as Ptime's, Mtime's or Uuidm's.
     - A {b tuple} is a JSON array of exactly its items, each by its own
       description.
     - Any other type [M.t] is described by [M.json], and [u] by [u_json]: a
@@ -62,8 +68,8 @@
 
     A function, an object type and a variant constructor with more than one
     argument have no JSON shape here, and neither has a case whose one argument
-    is a scalar, a time, a list, an array, an option or a tuple, since a case is
-    an object's members. Each is refused where it is written, with what to write
-    instead -- an inline record, for a case: each refusal is an error at its
-    place in the derived code, so an editor shows every one in a file, and the
-    rest of the file is still derived. *)
+    is a scalar, a time, a UUID, a list, an array, an option or a tuple, since a
+    case is an object's members. Each is refused where it is written, with what
+    to write instead -- an inline record, for a case: each refusal is an error
+    at its place in the derived code, so an editor shows every one in a file,
+    and the rest of the file is still derived. *)

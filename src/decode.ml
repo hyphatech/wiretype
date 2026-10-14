@@ -277,11 +277,6 @@ let number st path =
   | _ -> ());
   (String.sub st.s start (st.i - start), !integral)
 
-let spelled f =
-  let b = Buffer.create 24 in
-  Text.number b f;
-  Buffer.contents b
-
 (* ------------------------------------------------------------------ *)
 (* Skipping *)
 
@@ -530,19 +525,11 @@ let one_of words =
         last
 
 (* Every bound a value breaks, each its own problem. *)
-let checked st path v checks =
-  let broken =
-    List.fold_left
-      (fun broken (holds, code, message) ->
-        if holds then broken
-        else (
-          report st path code (Lazy.force message);
-          true))
-      false checks
-  in
-  if broken then None else Some v
-
-let bound opt f = match opt with None -> true | Some m -> f m
+let checked st path v = function
+  | [] -> Some v
+  | broken ->
+      List.iter (fun (code, message) -> report st path code message) broken;
+      None
 
 let past_type st path negative what =
   report st path
@@ -607,25 +594,7 @@ let int_ st path (b : S.int_bounds) =
         past_type st path negative "a whole number written with a fraction"
       else Some (Float.to_int f)
   in
-  Option.bind n (fun n ->
-      checked st path n
-        [
-          ( bound b.min (fun m -> n >= m),
-            P.Too_small,
-            lazy
-              (Printf.sprintf "This must be at least %d."
-                 (Option.value b.min ~default:0)) );
-          ( bound b.max (fun m -> n <= m),
-            P.Too_large,
-            lazy
-              (Printf.sprintf "This must be at most %d."
-                 (Option.value b.max ~default:0)) );
-          ( bound b.multiple_of (fun m -> m = 0 || n mod m = 0),
-            P.Not_a_multiple,
-            lazy
-              (Printf.sprintf "This must be a multiple of %d."
-                 (Option.value b.multiple_of ~default:1)) );
-        ])
+  Option.bind n (fun n -> checked st path n (Bounds.int b n))
 
 let int64_ st path (b : S.int64_bounds) =
   let text, integral = number st path in
@@ -645,87 +614,17 @@ let int64_ st path (b : S.int64_bounds) =
         past_type st path negative "a whole number written with a fraction"
       else Some (Int64.of_float f)
   in
-  let show o = Int64.to_string (Option.value o ~default:0L) in
-  Option.bind n (fun n ->
-      checked st path n
-        [
-          ( bound b.min (fun m -> Int64.compare n m >= 0),
-            P.Too_small,
-            lazy (Printf.sprintf "This must be at least %s." (show b.min)) );
-          ( bound b.max (fun m -> Int64.compare n m <= 0),
-            P.Too_large,
-            lazy (Printf.sprintf "This must be at most %s." (show b.max)) );
-          ( bound b.multiple_of (fun m ->
-                Int64.equal m 0L || Int64.equal (Int64.rem n m) 0L),
-            P.Not_a_multiple,
-            lazy
-              (Printf.sprintf "This must be a multiple of %s."
-                 (show b.multiple_of)) );
-        ])
-
-(* Zod's own check, so a browser and the server decide alike: the quotient
-   within four epsilons of a whole number, scaled by its size, since the
-   value and the step were each rounded to a double before the division
-   rounded again -- 19.99 is a multiple of 0.01, though 19.99 /. 0.01 is
-   1998.9999999999998. *)
-let multiple f m =
-  let ratio = f /. m in
-  Float.abs (ratio -. Float.round ratio)
-  < 4. *. epsilon_float *. Float.max (Float.abs ratio) 1.
+  Option.bind n (fun n -> checked st path n (Bounds.int64 b n))
 
 let number_ st path (b : S.number_bounds) =
   let text, _ = number st path in
   let f = float_of_string text in
   if not (Float.is_finite f) then
     past_type st path (Char.equal text.[0] '-') "a number"
-  else
-    let show o = spelled (Option.value o ~default:0.) in
-    checked st path f
-      [
-        ( bound b.min (fun m -> f >= m),
-          P.Too_small,
-          lazy (Printf.sprintf "This must be at least %s." (show b.min)) );
-        ( bound b.max (fun m -> f <= m),
-          P.Too_large,
-          lazy (Printf.sprintf "This must be at most %s." (show b.max)) );
-        ( bound b.above (fun m -> f > m),
-          P.Too_small,
-          lazy (Printf.sprintf "This must be greater than %s." (show b.above))
-        );
-        ( bound b.below (fun m -> f < m),
-          P.Too_large,
-          lazy (Printf.sprintf "This must be less than %s." (show b.below)) );
-        ( bound b.multiple_of (multiple f),
-          P.Not_a_multiple,
-          lazy
-            (Printf.sprintf "This must be a multiple of %s."
-               (show b.multiple_of)) );
-      ]
-
-(* A string's length is its code points, as JSON Schema counts it. *)
-let code_points s =
-  String.fold_left
-    (fun n c -> if Char.code c land 0xC0 = 0x80 then n else n + 1)
-    0 s
+  else checked st path f (Bounds.number b f)
 
 let string_bounded st path (l : S.length) s =
-  let n = lazy (code_points s) in
-  let chars k =
-    if k = 1 then "1 character" else Printf.sprintf "%d characters" k
-  in
-  checked st path s
-    [
-      ( bound l.min_length (fun m -> Lazy.force n >= m),
-        P.Too_short,
-        lazy
-          (Printf.sprintf "This must be at least %s long."
-             (chars (Option.value l.min_length ~default:0))) );
-      ( bound l.max_length (fun m -> Lazy.force n <= m),
-        P.Too_long,
-        lazy
-          (Printf.sprintf "This must be at most %s long."
-             (chars (Option.value l.max_length ~default:0))) );
-    ]
+  checked st path s (Bounds.length l s)
 
 let sorts (a : _ S.any) =
   List.filter_map Fun.id
@@ -842,16 +741,16 @@ and described : type a. st -> path -> int -> int -> a S.t -> a option =
       | Some t -> described st path depth selves t
       | None -> mismatch st path depth (either (sorts a)))
   | S.Map (_, m) -> (
-      match m.dec with
+      match m.parse with
       | None ->
           report st path P.Malformed "This cannot be read here.";
           skip st path depth;
           None
-      | Some dec -> (
+      | Some parse -> (
           match described st path depth selves m.inner with
           | None -> None
           | Some x -> (
-              match dec x with
+              match parse x with
               | Ok y -> Some y
               | Error message ->
                   report st path P.Malformed message;
@@ -887,21 +786,8 @@ and list : type a. st -> path -> int -> a S.elements -> a list option =
        | _ -> syntax st path "a ',' or a ']'"
      in
      loop ());
-  let count k = if k = 1 then "1 item" else Printf.sprintf "%d items" k in
   let within =
-    checked st path ()
-      [
-        ( bound l.min_items (fun m -> !n >= m),
-          P.Too_few,
-          lazy
-            (Printf.sprintf "This must have at least %s."
-               (count (Option.value l.min_items ~default:0))) );
-        ( bound l.max_items (fun m -> !n <= m),
-          P.Too_many,
-          lazy
-            (Printf.sprintf "This must have at most %s."
-               (count (Option.value l.max_items ~default:0))) );
-      ]
+    checked st path () (Bounds.items ~min:l.min_items ~max:l.max_items !n)
   in
   match within with
   | Some () when not !failed -> Some (List.rev !items)
@@ -968,21 +854,9 @@ and dict : type k v. st -> path -> int -> (k, v) S.dict -> (k * v) list option =
        | _ -> syntax st path "a ',' or a '}'"
      in
      loop Names.empty Names.empty);
-  let count k = if k = 1 then "1 member" else Printf.sprintf "%d members" k in
   let within =
     checked st path ()
-      [
-        ( bound d.min_properties (fun m -> !n >= m),
-          P.Too_few,
-          lazy
-            (Printf.sprintf "This must have at least %s."
-               (count (Option.value d.min_properties ~default:0))) );
-        ( bound d.max_properties (fun m -> !n <= m),
-          P.Too_many,
-          lazy
-            (Printf.sprintf "This must have at most %s."
-               (count (Option.value d.max_properties ~default:0))) );
-      ]
+      (Bounds.members ~min:d.min_properties ~max:d.max_properties !n)
   in
   match within with
   | Some () when not !failed -> Some (List.rev !items)
@@ -1088,10 +962,15 @@ and prepare : type o f.
       let slot = ref Unset in
       let at = P.Member m.name :: path in
       let set () =
-        slot :=
-          match value st at (depth + 1) m.shape with
-          | Some v -> Got v
-          | None -> Failed
+        match m.access with
+        (* The server's to give: a client sending back what it was given
+           has it skipped, and it reads as its absent. *)
+        | S.Read_only -> skip st at (depth + 1)
+        | S.Read_write | S.Write_only -> (
+            slot :=
+              match value st at (depth + 1) m.shape with
+              | Some v -> Got v
+              | None -> Failed)
       in
       let acc, k = prepare st path depth prev (member m.name set :: acc) hook in
       ( acc,

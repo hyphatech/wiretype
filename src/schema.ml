@@ -280,8 +280,8 @@ and fields_differ : type o f.
   | S.Build _ | S.Unread -> false
   | S.Mem (prev, m) ->
       (match m.access with
-        | `Read_write -> m.opt
-        | `Read_only | `Write_only -> true)
+        | Read_write -> m.opt
+        | Read_only | Write_only -> true)
       || differs seen kinds depth m.shape
       || fields_differ seen kinds depth prev
   | S.Cases (prev, S.Tagged t) ->
@@ -429,8 +429,8 @@ and props : type o f.
       let before = props ctx dir at depth prev in
       let shown =
         match (dir, m.access) with
-        | Decode, `Read_only | Encode, `Write_only -> false
-        | (Decode | Encode), (`Read_write | `Read_only | `Write_only) -> true
+        | Decode, S.Read_only | Encode, S.Write_only -> false
+        | (Decode | Encode), (S.Read_write | S.Read_only | S.Write_only) -> true
       in
       if not shown then before
       else

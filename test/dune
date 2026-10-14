@@ -15,7 +15,15 @@
  (name test_wiretype)
  (package ppx_wiretype)
  (modules test_wiretype)
- (libraries wiretype ptime mtime yojson alcotest qcheck-core qcheck-alcotest)
+ (libraries
+  wiretype
+  ptime
+  mtime
+  uuidm
+  yojson
+  alcotest
+  qcheck-core
+  qcheck-alcotest)
  (preprocess
   (pps ppx_wiretype))
  (deps

@@ -21,7 +21,7 @@
  (synopsis
   "JSON contracts for OCaml: one description validates, writes, and prints JSON Schema and Zod")
  (description
-  "One value describes a JSON shape: it reads a document in one pass with every problem found, writes a value, checks the bounds it states, and prints itself as JSON Schema 2020-12 and as Zod, so a server, a browser and a model read one contract. Depends on Ptime and Mtime alone.")
+  "One value describes a JSON shape: it reads a document in one pass with every problem found, writes a value, checks the bounds it states, and prints itself as JSON Schema 2020-12 and as Zod, so a server, a browser and a model read one contract. Depends on Ptime, Mtime and Uuidm alone.")
  (depends
   (ocaml
    (>= 5.5))
@@ -29,6 +29,8 @@
    (>= 1.2.0))
   (mtime
    (>= 2.1.0))
+  (uuidm
+   (>= 0.9.10))
   (alcotest
    (and
     :with-test
@@ -70,6 +72,10 @@
    (and
     :with-test
     (>= 2.1.0)))
+  (uuidm
+   (and
+    :with-test
+    (>= 0.9.10)))
   (yojson
    (and
     :with-test

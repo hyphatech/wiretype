@@ -38,7 +38,8 @@
     {b A description that can mean nothing} -- such as a bound no number meets,
     a [multiple_of] that is not positive, two values written as one word, a
     member described twice, an object with two unions, a member written by
-    leaving it out that is read as required, or an option of a description that
+    leaving it out that is read as required, a read-only member with nothing to
+    be read as in an object that is read, or an option of a description that
     writes [null] for a value of its own -- raises [Invalid_argument] where it
     is built, as each function below says: a description is a constant written
     in source, so the mistake is found when the program starts, or in its first
@@ -85,9 +86,10 @@ val encode : 'a t -> 'a -> (string, Unwritable.t) result
     finite, a value an enum has no word for, a case its union does not have, a
     [Some] that would be written [null] by a description of itself {!nullable}
     could not look into, any value of a description that is only itself -- or
-    what would make a document {!decode} refuses: text that is not UTF-8, a
-    member or a map's name written twice, nesting past 512. What [encode]
-    writes, [decode] reads. *)
+    what would make a document {!decode} refuses: a value outside a bound its
+    description states, said in the words [decode] says it in, text that is not
+    UTF-8, a member or a map's name written twice, nesting past 512. What
+    [encode] writes, [decode] reads. *)
 
 val to_value : 'a t -> 'a -> (Value.t, Unwritable.t) result
 (** The value as the JSON {!encode} writes for it. *)
@@ -165,12 +167,12 @@ val enum : ?kind:string -> ?doc:string -> ('a -> string) -> 'a list -> 'a t
 (** {1 Ready-made kinds}
 
     Each over a plain OCaml type, so no library's type is in an application's
-    API, but for time: an instant is a [Ptime.t] and a duration an
-    [Mtime.Span.t], the types OCaml's libraries hold time in. Each with its
-    schema's [format] and its Zod check, and accepting no string that check
-    refuses. What each is, its [format] says, so a schema prints no
-    [description] of the library's for it: a doc is its user's, a member's or
-    one {!map} gives around the kind. *)
+    API, but for time and identity: an instant is a [Ptime.t], a duration an
+    [Mtime.Span.t] and a UUID a [Uuidm.t], the types OCaml's libraries hold them
+    in. Each with its schema's [format] and its Zod check, and accepting no
+    string that check refuses. What each is, its [format] says, so a schema
+    prints no [description] of the library's for it: a doc is its user's, a
+    member's or one {!map} gives around the kind. *)
 
 val instant : Ptime.t t
 (** An instant, as RFC 3339 [date-time]: [2026-09-30T12:00:00.000Z], read with
@@ -191,10 +193,12 @@ val duration : Mtime.Span.t t
     2{^ 64} - 1 nanoseconds, about 584 years -- is refused, as is a negative
     one, which ISO 8601 has no spelling for. *)
 
-val uuid : ?version:Shape.uuid_version -> unit -> string t
-(** A UUID, as RFC 9562 writes one, lower-cased: versions 1 to 8, with the nil
-    and the max UUID, or the one version asked for. The max UUID is read in
-    lower case alone, as Zod reads it. *)
+val uuid : ?version:Shape.uuid_version -> unit -> Uuidm.t t
+(** A UUID, as RFC 9562 writes one: versions 1 to 8, with the nil and the max
+    UUID, or the one version asked for, read in either case and written in lower
+    case. The max UUID is read in lower case alone, as Zod reads it. Any 128
+    bits are a [Uuidm.t], so one of another version, or of a variant RFC 9562
+    does not define, is {!Unwritable.Unspellable}. *)
 
 val base64 : string t
 (** Bytes, as RFC 4648 §4's padded base64. *)
@@ -298,24 +302,27 @@ val rec' : 'a t Lazy.t -> 'a t
 val map :
   ?kind:string ->
   ?doc:string ->
-  ?dec:('a -> 'b) ->
-  ?enc:('b -> 'a) ->
+  ?parse:('a -> 'b) ->
+  ?print:('b -> 'a) ->
   'a t ->
   'b t
-(** Another type over [t]. A direction left out is one the description is never
-    used in: reading it, or writing it, is a problem. *)
+(** Another type over [t]: [parse] from what [t] reads, [print] back to what it
+    writes. A direction left out is one the description is never used in:
+    reading it, or writing it, is a problem. A [parse] that can fail is a
+    {!kind}'s. *)
 
 val kind :
-  name:string ->
+  kind:string ->
   ?doc:string ->
   ?format:Shape.format ->
   parse:('a -> ('b, string) result) ->
   ?print:('b -> 'a) ->
   'a t ->
   'b t
-(** A value with a grammar of its own -- an id, a coordinate -- over [t]:
-    [parse]'s [Error] is a sentence for a person, a {!Problem.Malformed} at the
-    value's place. Without [print] it is only read. *)
+(** A value with a grammar of its own -- an id, a coordinate -- over [t], called
+    [kind] as every description is named: [parse]'s [Error] is a sentence for a
+    person, a {!Problem.Malformed} at the value's place. Without [print] it is
+    only read. *)
 
 val any :
   ?kind:string ->
@@ -361,8 +368,11 @@ module Object : sig
   (** A member. Without [absent] it is required; with it, it may be left out and
       reads as [absent]. [omit] says which values are written by leaving it out,
       and needs [absent] where the object is read. [enc] is how it is found in a
-      value; without it the object only reads. [`Read_only] leaves it out of a
-      request's schema and [`Write_only] out of an answer's. *)
+      value; without it the object only reads. [~access:Read_only] makes it the
+      server's to give: it is never read -- one a request holds is skipped, as a
+      client sends back what it was given, and it reads as [absent] -- and is in
+      no request's schema. [~access:Write_only] makes it the client's: it is
+      never written, and is in no answer's schema. *)
 
   val opt_mem :
     ?doc:string ->
@@ -409,7 +419,9 @@ module Object : sig
       object has two unions -- the tag is read before the members it decides, so
       an object has one -- or where an object that is read has a member, or a
       tag, with [omit] and no [absent], which it would write by leaving out and
-      read as required. *)
+      read as required, or a read-only member with no [absent], which it never
+      reads and so could not build a value without: an object that is only
+      written is made by {!enc_only}. *)
 
   (** The cases of a union. *)
   module Case : sig

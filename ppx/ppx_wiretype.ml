@@ -43,7 +43,11 @@ module A = struct
   let examples = label "examples" expr_payload
   let read_only = flag "read_only"
   let write_only = flag "write_only"
-  let deprecated = flag "deprecated"
+
+  (* Its full name alone: a bare [@deprecated] is OCaml's own. *)
+  let deprecated =
+    Attribute.declare_flag "@wiretype.deprecated"
+      Attribute.Context.label_declaration
 
   let cd_name =
     Attribute.declare "wiretype.name" Attribute.Context.constructor_declaration
@@ -377,6 +381,8 @@ let is_duration = function
       true
   | _ -> false
 
+let is_uuid = function Ldot (Lident "Uuidm", "t") -> true | _ -> false
+
 let rec desc env (ct : core_type) =
   let loc = ct.ptyp_loc in
   match Attribute.get A.ct_with ct with
@@ -395,6 +401,8 @@ let rec desc env (ct : core_type) =
           [%expr Wiretype.instant]
       | Ptyp_constr ({ txt; _ }, []) when is_duration txt ->
           [%expr Wiretype.duration]
+      | Ptyp_constr ({ txt; _ }, []) when is_uuid txt ->
+          [%expr Wiretype.uuid ()]
       (* The stdlib's scalars Wiretype has no description of would be read
          as a type named here or in a module, and fail as an unbound
          [int32_json] or [Int32.json]. *)
@@ -418,7 +426,7 @@ let rec desc env (ct : core_type) =
           [%expr Wiretype.list [%e desc env a]]
       | Ptyp_constr ({ txt = Lident "array"; _ }, [ a ]) ->
           [%expr
-            Wiretype.map ~dec:Stdlib.Array.of_list ~enc:Stdlib.Array.to_list
+            Wiretype.map ~parse:Stdlib.Array.of_list ~print:Stdlib.Array.to_list
               (Wiretype.list [%e desc env a])]
       | Ptyp_constr ({ txt = Lident "option"; _ }, [ a ]) -> (
           match null_inside a with
@@ -527,7 +535,8 @@ let no_object (ct : core_type) =
         _ )
   | Ptyp_tuple _ ->
       true
-  | Ptyp_constr ({ txt; _ }, []) -> is_instant txt || is_duration txt
+  | Ptyp_constr ({ txt; _ }, []) ->
+      is_instant txt || is_duration txt || is_uuid txt
   | _ -> false
 
 (* ------------------------------------------------------------------ *)
@@ -718,8 +727,8 @@ let member env (f : field) ~enc =
       (Attribute.has_flag A.read_only ld, Attribute.has_flag A.write_only ld)
     with
     | false, false -> None
-    | true, false -> Some (labelled "access" [%expr `Read_only])
-    | false, true -> Some (labelled "access" [%expr `Write_only])
+    | true, false -> Some (labelled "access" [%expr Wiretype.Shape.Read_only])
+    | false, true -> Some (labelled "access" [%expr Wiretype.Shape.Write_only])
     | true, true ->
         Location.raise_errorf ~loc
           "wiretype: a member is in answers alone or in requests alone; write \
@@ -749,6 +758,11 @@ let member env (f : field) ~enc =
       in
       B.pexp_apply ~loc [%expr Wiretype.Object.opt_mem]
         (args @ [ name; (Nolabel, d) ])
+  | None, None when Attribute.has_flag A.read_only ld ->
+      Location.raise_errorf ~loc
+        "wiretype: %s is read-only, so a request's is never read; give it \
+         [@default e] to be read as, or make it an option"
+        f.ocaml
   | (Some _ | None), default ->
       let d = field_desc env ~target:ld.pld_type ld in
       let examples =
@@ -808,24 +822,41 @@ let type_of_decl ~loc (td : type_declaration) =
     { txt = Lident td.ptype_name.txt; loc }
     (List.map (fun _ -> B.ptyp_any ~loc) td.ptype_params)
 
+(* What is derived names every field and constructor, one OCaml's own
+   [@deprecated] marks too: the alert is for its user's code, and the
+   derived code is no use of it a person wrote. *)
+let unalerted (e : expression) =
+  let loc = e.pexp_loc in
+  {
+    e with
+    pexp_attributes =
+      B.attribute ~loc
+        ~name:{ txt = "ocaml.alert"; loc }
+        ~payload:(PStr [ B.pstr_eval ~loc (B.estring ~loc "-deprecated") [] ])
+      :: e.pexp_attributes;
+  }
+
 let record env ~loc ~kind ~doc ~spelling td lds =
   let fs = fields spelling lds in
   let ty = type_of_decl ~loc td in
   let build =
-    lambda ~loc
-      (List.map (fun f -> f.ocaml) fs)
-      (B.pexp_constraint ~loc
-         (B.pexp_record ~loc
-            (List.map
-               (fun f -> ({ txt = Lident f.ocaml; loc }, B.evar ~loc f.ocaml))
-               fs)
-            None)
-         ty)
+    unalerted
+    @@ lambda ~loc
+         (List.map (fun f -> f.ocaml) fs)
+         (B.pexp_constraint ~loc
+            (B.pexp_record ~loc
+               (List.map
+                  (fun f ->
+                    ({ txt = Lident f.ocaml; loc }, B.evar ~loc f.ocaml))
+                  fs)
+               None)
+            ty)
   in
   let project _ f =
-    [%expr
-      fun (r : [%t ty]) ->
-        [%e B.pexp_field ~loc [%expr r] { txt = Lident f.ocaml; loc }]]
+    unalerted
+      [%expr
+        fun (r : [%t ty]) ->
+          [%e B.pexp_field ~loc [%expr r] { txt = Lident f.ocaml; loc }]]
   in
   object_of env ~loc ~kind ~doc fs ~build ~project
 
@@ -1019,15 +1050,17 @@ let cases_desc ~loc ~name ~kind ~doc ~tag cases =
   let doc_arg = Option.map (fun d -> labelled "doc" (B.estring ~loc d)) doc in
   if constant then
     let word =
-      B.pexp_function_cases ~loc
-        (List.map
-           (fun c ->
-             B.case ~lhs:c.pattern ~guard:None ~rhs:(B.estring ~loc c.word))
-           cases)
+      unalerted
+      @@ B.pexp_function_cases ~loc
+           (List.map
+              (fun c ->
+                B.case ~lhs:c.pattern ~guard:None ~rhs:(B.estring ~loc c.word))
+              cases)
     in
     let values =
-      B.elist ~loc
-        (List.map (fun c -> B.eapply ~loc c.dec [ [%expr ()] ]) cases)
+      unalerted
+      @@ B.elist ~loc
+           (List.map (fun c -> B.eapply ~loc c.dec [ [%expr ()] ]) cases)
     in
     B.pexp_apply ~loc [%expr Wiretype.enum]
       (List.filter_map Fun.id
@@ -1043,18 +1076,19 @@ let cases_desc ~loc ~name ~kind ~doc ~tag cases =
             ~expr:
               [%expr
                 Wiretype.Object.Case.map [%e B.estring ~loc c.word] [%e c.obj]
-                  ~dec:[%e c.dec]])
+                  ~dec:[%e unalerted c.dec]])
         named
     in
     let enc_case =
-      B.pexp_function_cases ~loc
-        (List.map
-           (fun (n, c) ->
-             B.case ~lhs:c.pattern ~guard:None
-               ~rhs:
-                 [%expr
-                   Wiretype.Object.Case.value [%e B.evar ~loc n] [%e c.value]])
-           named)
+      unalerted
+      @@ B.pexp_function_cases ~loc
+           (List.map
+              (fun (n, c) ->
+                B.case ~lhs:c.pattern ~guard:None
+                  ~rhs:
+                    [%expr
+                      Wiretype.Object.Case.value [%e B.evar ~loc n] [%e c.value]])
+              named)
     in
     let makes =
       B.elist ~loc

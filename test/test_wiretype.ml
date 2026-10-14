@@ -301,7 +301,7 @@ let every_problem () =
     "and not JSON inside it, a syntax error alone"
     [ ("note[1]", "syntax") ]
     (problems {|{"x": 0, "y": 0, "note": [1, nope]}|} move);
-  let written_only = J.map ~enc:Fun.id J.int in
+  let written_only = J.map ~print:Fun.id J.int in
   Alcotest.(check (list problem))
     "a description made only to write"
     [ ("", "malformed") ]
@@ -387,7 +387,7 @@ let nested_options () =
   let three =
     J.Object.map Fun.id
     |> J.Object.mem "a" ~absent:None ~omit:Option.is_none
-         (J.map ~dec:Option.some ~enc:Option.join (J.nullable J.int))
+         (J.map ~parse:Option.some ~print:Option.join (J.nullable J.int))
          ~enc:Fun.id
     |> J.Object.finish
   in
@@ -399,7 +399,7 @@ let nested_options () =
   let rec bush =
     lazy
       (let array =
-         J.map ~dec:bush_of ~enc:of_bush (J.list (J.nullable (J.rec' bush)))
+         J.map ~parse:bush_of ~print:of_bush (J.list (J.nullable (J.rec' bush)))
        in
        J.any ~dec_null:(J.null Leaf) ~dec_array:array
          ~enc:(function Leaf -> J.null Leaf | Node _ -> array)
@@ -951,8 +951,8 @@ let names () =
   let rec nest =
     lazy
       (J.map
-         ~dec:(fun l -> Nest l)
-         ~enc:(fun (Nest l) -> l)
+         ~parse:(fun l -> Nest l)
+         ~print:(fun (Nest l) -> l)
          (J.list (J.rec' nest)))
   in
   List.iter
@@ -995,7 +995,7 @@ let only_itself () =
         (unspellable)");
   let rec mapped n =
     if n = 0 then J.int
-    else J.map ~dec:Fun.id ~enc:Fun.id (J.rec' (lazy (mapped (n - 1))))
+    else J.map ~parse:Fun.id ~print:Fun.id (J.rec' (lazy (mapped (n - 1))))
   in
   read "through a map" (mapped times) "1"
     (Error
@@ -1010,7 +1010,7 @@ let only_itself () =
     else
       let next = lazy (sorts (n - 1)) in
       J.any ~dec_number:(J.rec' next)
-        ~dec_array:(J.map ~dec:List.length (J.list (J.rec' next)))
+        ~dec_array:(J.map ~parse:List.length (J.list (J.rec' next)))
         ~enc:(fun _ -> J.rec' next)
         ()
   in
@@ -1142,7 +1142,7 @@ let malformed_descriptions () =
     |> J.Object.opt_mem "a" shape ~enc:Fun.id
     |> J.Object.finish
   in
-  let maybe = J.map ~kind:"maybe" ~dec:Fun.id ~enc:Fun.id (J.nullable J.int)
+  let maybe = J.map ~kind:"maybe" ~parse:Fun.id ~print:Fun.id (J.nullable J.int)
   and cell =
     J.any ~kind:"cell" ~dec_null:(J.null 0) ~dec_number:J.int
       ~enc:(fun n -> if n = 0 then J.null 0 else J.int)
@@ -1259,7 +1259,7 @@ let malformed_descriptions () =
      never written." (fun () ->
       obj ()
       |> J.Object.case_mem "t"
-           (J.map ~dec:Fun.id J.string)
+           (J.map ~parse:Fun.id J.string)
            ~enc:Fun.id
            ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
            [ J.Object.Case.make (case "a") ]
@@ -1276,6 +1276,20 @@ let malformed_descriptions () =
            ~enc_case:(fun () -> J.Object.Case.value (case "a") ())
            [ J.Object.Case.make (case "a") ]
       |> J.Object.finish);
+  refused "a read-only member read with nothing to build it from"
+    "Wiretype.Object.finish: the member \"id\" is read-only, so a request's is \
+     never read, and it has no absent to be read as; give it one, or describe \
+     an object that is only written with enc_only" (fun () ->
+      obj ()
+      |> J.Object.mem "id" J.int ~access:Read_only ~enc:Fun.id
+      |> J.Object.finish);
+  Alcotest.(check (result string string))
+    "but one that is only written needs none" (Ok {|{"id":1}|})
+    (written
+       (J.Object.enc_only ()
+       |> J.Object.mem "id" J.int ~access:Read_only ~enc:Fun.id
+       |> J.Object.finish)
+       1);
   Alcotest.(check (result string string))
     "but one that is never read may leave out what it likes" (Ok "{}")
     (written
@@ -1534,7 +1548,7 @@ let order_number_of s =
   else Error "An order number is ord- and digits."
 
 let order_number =
-  J.kind ~name:"order number" ~parse:order_number_of
+  J.kind ~kind:"order number" ~parse:order_number_of
     ~print:(Printf.sprintf "ord-%d") J.string
 
 let own_kinds () =
@@ -1565,7 +1579,7 @@ let own_kinds () =
     "and without print, only read" (Error "read_only")
     (code
        (J.encode
-          (J.kind ~name:"order number" ~parse:order_number_of J.string)
+          (J.kind ~kind:"order number" ~parse:order_number_of J.string)
           42));
   Alcotest.(check (list string))
     "named by its name"
@@ -1624,8 +1638,11 @@ let kinds_round_trip =
       ~equal:(fun v w -> Mtime.Span.equal (to_ms v) w)
       ~print:(fun v -> Printf.sprintf "%Luns" (Mtime.Span.to_uint64_ns v));
     round_trip "a uuid" (J.uuid ())
-      (map uuid (triple hex (int_bound 7) (int_bound 3)))
-      ~equal:String.equal ~print:Fun.id;
+      (map
+         (fun parts ->
+           Option.value ~default:Uuidm.nil (Uuidm.of_string (uuid parts)))
+         (triple hex (int_bound 7) (int_bound 3)))
+      ~equal:Uuidm.equal ~print:Uuidm.to_string;
     round_trip "base64" J.base64 bytes ~equal:String.equal
       ~print:(Printf.sprintf "%S");
     round_trip "base64url" J.base64url bytes ~equal:String.equal
@@ -1653,6 +1670,29 @@ let spellings () =
   round (J.uuid ()) "01890A5D-AC96-7A3B-9E5A-5F1C2A7B8C9D"
     {|"01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d"|};
   round J.base64 "QR==" {|"QQ=="|};
+  Alcotest.(check bool)
+    "a uuid is a Uuidm.t" true
+    (match J.decode (J.uuid ()) {|"01890A5D-AC96-7A3B-9E5A-5F1C2A7B8C9D"|} with
+    | Ok u ->
+        Option.equal Uuidm.equal (Some u)
+          (Uuidm.of_string "01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d")
+    | Error _ -> false);
+  let unspellable shape u =
+    match J.encode shape u with
+    | Error { code = J.Unwritable.Unspellable; _ } -> true
+    | Ok _ | Error _ -> false
+  in
+  Alcotest.(check (list bool))
+    "and one written as no UUID it reads is refused"
+    [ true; true; false; false ]
+    [
+      unspellable (J.uuid ~version:V7 ()) (Uuidm.v4 (Bytes.make 16 '\x2a'));
+      unspellable (J.uuid ())
+        (Option.value ~default:Uuidm.nil
+           (Uuidm.of_binary_string (String.make 16 '\x11')));
+      unspellable (J.uuid ()) Uuidm.nil;
+      unspellable (J.uuid ()) Uuidm.max;
+    ];
   Alcotest.(check bool)
     "an instant is a Ptime.t" true
     (match J.decode J.instant {|"1970-01-01T00:00:00Z"|} with
@@ -1761,7 +1801,8 @@ type login = {
   user : string;
   password : string; [@write_only]
   id : int64; [@min 1L] [@max 10L]
-  shout : string; [@with J.map ~dec:String.uppercase_ascii ~enc:Fun.id J.string]
+  shout : string;
+      [@with J.map ~parse:String.uppercase_ascii ~print:Fun.id J.string]
   tags : (string[@with J.string_bounded ~max_length:3 ()]) list;
 }
 [@@deriving wiretype]
@@ -1857,9 +1898,10 @@ let derived_qualified () =
   Alcotest.(check (pair string string))
     "the same schema" (schema Short.json) (schema Qualified.json)
 
-(* A time is a [Ptime.t] or an [Mtime.Span.t], and the deriver describes
-   each by its kind. *)
+(* A time is a [Ptime.t] or an [Mtime.Span.t] and a UUID a [Uuidm.t], and
+   the deriver describes each by its kind. *)
 type booking = {
+  id : Uuidm.t;
   starts : Ptime.t;
   lasts : Mtime.Span.t;
   grace : Mtime.span option;
@@ -1868,10 +1910,10 @@ type booking = {
 
 let derived_times () =
   let text =
-    {|{"starts":"2026-09-30T12:00:00.000Z","lasts":"PT1H30M","grace":"PT5M"}|}
+    {|{"id":"01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d","starts":"2026-09-30T12:00:00.000Z","lasts":"PT1H30M","grace":"PT5M"}|}
   in
   Alcotest.(check (result string string))
-    "an instant and durations, read and written back" (Ok text)
+    "a UUID, an instant and durations, read and written back" (Ok text)
     (match J.decode booking_json text with
     | Ok b -> written booking_json b
     | Error ps -> Error (P.list_to_string ps))
@@ -1991,7 +2033,8 @@ let itself_shared () =
     let rec bush =
       lazy
         (let array =
-           J.map ~dec:bush_of ~enc:of_bush (J.list (J.nullable (J.rec' bush)))
+           J.map ~parse:bush_of ~print:of_bush
+             (J.list (J.nullable (J.rec' bush)))
          in
          J.any
            ~dec_null:(J.null (Leaf : bush))
@@ -2122,6 +2165,97 @@ module Profile = struct
   [@@deriving wiretype]
 end
 
+(* OCaml's own deprecation is OCaml's: a field carrying it is derived as any
+   other, and what is derived trips no alert, which the warnings this is
+   built with would make an error. *)
+module Renamed = struct
+  type t = {
+    old : int; [@deprecated "use fresh"]
+    older : int; [@ocaml.deprecated]
+    fresh : int;
+  }
+  [@@deriving wiretype]
+
+  type moved = Moved of { was : int } | Gone [@deprecated]
+  [@@deriving wiretype]
+
+  type tone = Loud | Quiet [@deprecated] [@@deriving wiretype]
+end
+
+let derived_deprecated () =
+  Alcotest.(check (result int string))
+    "read" (Ok 3)
+    (Result.map
+       (fun (r : Renamed.t) -> r.fresh)
+       (Result.map_error P.list_to_string
+          (J.decode Renamed.json {|{"old":1,"older":2,"fresh":3}|})));
+  let ctx = J.Schema.create () in
+  let root = J.Schema.walk ctx J.Schema.Encode ~at:"renamed" Renamed.json in
+  Alcotest.(check bool)
+    "and no document's" false
+    (contains
+       (V.to_string
+          (J.Schema.Json_schema.document (J.Schema.components ctx) root))
+       "deprecated")
+
+(* A read-only member is the server's to give and a write-only one the
+   client's: the first is never read, though a client sends back what it
+   was given, and the second never written. *)
+type account = {
+  name : string;
+  id : int; [@read_only] [@default 0]
+  password : string; [@write_only]
+}
+[@@deriving wiretype]
+
+let access () =
+  Alcotest.(check (result string string))
+    "a write-only member is never written" (Ok {|{"name":"a","id":1}|})
+    (written account_json { name = "a"; id = 1; password = "secret" });
+  let read shape text =
+    Result.map
+      (fun a -> (a.id, a.password))
+      (Result.map_error P.list_to_string (J.decode shape text))
+  in
+  Alcotest.(check (result (pair int string) string))
+    "a read-only member sent is ignored, and read as its absent"
+    (Ok (0, "p"))
+    (read account_json {|{"name":"a","id":5,"password":"p"}|});
+  Alcotest.(check (result (pair int string) string))
+    "a request as its schema describes it"
+    (Ok (0, "p"))
+    (read account_json {|{"name":"a","password":"p"}|});
+  let strict =
+    J.Object.map (fun name id password -> { name; id; password })
+    |> J.Object.mem "name" J.string ~enc:(fun a -> a.name)
+    |> J.Object.mem "id" J.int ~access:Read_only ~absent:0 ~enc:(fun a -> a.id)
+    |> J.Object.mem "password" J.string ~access:Write_only ~enc:(fun a ->
+        a.password)
+    |> J.Object.error_unknown |> J.Object.finish
+  in
+  Alcotest.(check (result (pair int string) string))
+    "ignored where a member it does not describe is refused"
+    (Ok (0, "p"))
+    (read strict {|{"name":"a","id":5,"password":"p"}|});
+  Alcotest.(check (list problem))
+    "and still one member, given once"
+    [ ("id", "repeated_member") ]
+    (problems {|{"name":"a","id":1,"id":2,"password":"p"}|} account_json);
+  let schema dir =
+    let ctx = J.Schema.create () in
+    let root = J.Schema.walk ctx dir ~at:"account" account_json in
+    V.to_string (J.Schema.Json_schema.document (J.Schema.components ctx) root)
+  in
+  Alcotest.(check (pair bool bool))
+    "a request's schema has the write-only member and not the read-only one"
+    (true, false)
+    ( contains (schema J.Schema.Decode) {|"password"|},
+      contains (schema J.Schema.Decode) {|"id"|} );
+  Alcotest.(check (pair bool bool))
+    "and an answer's the other way round" (false, true)
+    ( contains (schema J.Schema.Encode) {|"password"|},
+      contains (schema J.Schema.Encode) {|"id"|} )
+
 let derived_options () =
   Alcotest.(check string)
     "the array description is derived where Array is not Stdlib's"
@@ -2139,8 +2273,8 @@ let derived_options () =
     "a request has it not" false
     (contains (walk J.Schema.Decode) {|"nick"|});
   Alcotest.(check (result string reject))
-    "any JSON and an array, read and written"
-    (Ok {|{"nick":"ann","extra":{"a":[1]},"scores":[1,2]}|})
+    "any JSON and an array, read and written, and a read-only option ignored"
+    (Ok {|{"extra":{"a":[1]},"scores":[1,2]}|})
     (Result.bind
        (Result.map_error P.list_to_string
           (J.decode Profile.json
@@ -2189,7 +2323,7 @@ let unwritable () =
     [ (1, 1) ]
     "[0] name_not_text";
   refused "a description made only to read"
-    (J.list (J.map ~dec:Fun.id J.int))
+    (J.list (J.map ~parse:Fun.id J.int))
     [ 1 ] "[0] read_only";
   refused "a number that is no JSON number" J.number Float.nan " unspellable";
   refused "nor an infinite one" (J.list J.number) [ Float.infinity ]
@@ -2242,6 +2376,106 @@ let unwritable () =
     (Result.map ignore
        (Result.map_error (List.map P.to_string)
           (J.decode J.Value.json (String.make 513 '[' ^ String.make 513 ']'))))
+
+(* What [encode] writes, [decode] reads: a value outside a bound its
+   description states is refused on writing, at its place, in the words a
+   reader says it in. *)
+let out_of_bounds () =
+  let refused name shape v expected =
+    Alcotest.(check (result unit string))
+      name (Error expected)
+      (Result.map ignore (written shape v))
+  in
+  refused "an int above its most"
+    (J.list (J.int_bounded ~max:99 ()))
+    [ 1; 120 ] "[1]: This must be at most 99. (out_of_bounds)";
+  refused "below its least" (J.int_bounded ~min:1 ()) 0
+    "the value: This must be at least 1. (out_of_bounds)";
+  refused "not its multiple"
+    (J.int_bounded ~multiple_of:5 ())
+    7 "the value: This must be a multiple of 5. (out_of_bounds)";
+  refused "an int64's"
+    (J.int64_bounded ~max:10L ())
+    11L "the value: This must be at most 10. (out_of_bounds)";
+  refused "a number at an exclusive least"
+    (J.number_bounded ~above:0. ())
+    0. "the value: This must be greater than 0. (out_of_bounds)";
+  refused "and most"
+    (J.number_bounded ~below:1. ())
+    1.5 "the value: This must be less than 1. (out_of_bounds)";
+  refused "a number not its multiple"
+    (J.number_bounded ~multiple_of:0.01 ())
+    0.005 "the value: This must be a multiple of 0.01. (out_of_bounds)";
+  refused "text too long"
+    (J.string_bounded ~max_length:3 ())
+    "abcd" "the value: This must be at most 3 characters long. (out_of_bounds)";
+  refused "counted in code points"
+    (J.string_bounded ~min_length:2 ())
+    "\xc3\xa9"
+    "the value: This must be at least 2 characters long. (out_of_bounds)";
+  refused "a list of too many"
+    (J.list ~max_items:1 J.int)
+    [ 1; 2 ] "the value: This must have at most 1 item. (out_of_bounds)";
+  refused "a map of too few"
+    (J.dict ~min_properties:1 ~key:J.string ~value:J.int ())
+    [] "the value: This must have at least 1 member. (out_of_bounds)";
+  refused "a map's name"
+    (J.dict ~key:(J.string_bounded ~max_length:1 ()) ~value:J.int ())
+    [ ("ab", 1) ]
+    "[0]: This must be at most 1 character long. (out_of_bounds)";
+  refused "a derived member" placed_json
+    { row = 19; col = 0; note = None; as_ = "black"; board_size = 19 }
+    "row: This must be at most 18. (out_of_bounds)";
+  Alcotest.(check (result string string))
+    "and one within them written" (Ok "19.99")
+    (written (J.number_bounded ~multiple_of:0.01 ()) 19.99)
+
+type bounded = {
+  small : int; [@min -3] [@max 3] [@multiple_of 2]
+  big : int64; [@min 0L]
+  ratio : float; [@above 0.] [@below 1.] [@multiple_of 0.125]
+  word : string; [@min_length 1] [@max_length 2]
+  few : int list; [@max_items 2]
+  some : (string * int) list; [@dict] [@min_properties 1]
+}
+[@@deriving wiretype]
+
+let bounds_round_trip =
+  let open QCheck.Gen in
+  let bounded =
+    map
+      (fun ((small, big, ratio), (word, few, some)) ->
+        { small; big; ratio; word; few; some })
+      (pair
+         (triple (int_range (-5) 5)
+            (map Int64.of_int (int_range (-2) 2))
+            (map (fun n -> float_of_int n /. 8.) (int_range (-2) 10)))
+         (triple
+            (string_size ~gen:(char_range 'a' 'c') (int_bound 3))
+            (list_size (int_bound 3) nat_small)
+            (map
+               (List.mapi (fun i v -> ("k" ^ string_of_int i, v)))
+               (list_size (int_bound 2) nat_small))))
+  in
+  let equal a b =
+    Int.equal a.small b.small && Int64.equal a.big b.big
+    && Float.equal a.ratio b.ratio
+    && String.equal a.word b.word
+    && List.equal Int.equal a.few b.few
+    && List.equal
+         (fun (k, v) (k', v') -> String.equal k k' && Int.equal v v')
+         a.some b.some
+  in
+  QCheck.Test.make ~count:2000
+    ~name:"what encode writes within its bounds, decode reads back as itself"
+    (QCheck.make bounded) (fun v ->
+      match J.encode bounded_json v with
+      | Error { code = J.Unwritable.Out_of_bounds; _ } -> true
+      | Error e -> QCheck.Test.fail_report (J.Unwritable.to_string e)
+      | Ok s -> (
+          match J.decode bounded_json s with
+          | Ok w -> equal v w || QCheck.Test.fail_reportf "%s read otherwise" s
+          | Error ps -> QCheck.Test.fail_report (P.list_to_string ps)))
 
 (* An object, a union, a map and a tuple, written and read back: what is
    read is written as it was. *)
@@ -2403,7 +2637,7 @@ let rec described =
       let (D d) = described r in
       D
         {
-          shape = J.map ~kind:"k" ~dec:Fun.id ~enc:Fun.id d.shape;
+          shape = J.map ~kind:"k" ~parse:Fun.id ~print:Fun.id d.shape;
           gen = d.gen;
           equal = d.equal;
         }
@@ -3081,6 +3315,8 @@ let () =
         [
           Alcotest.test_case "what cannot be written" `Quick unwritable;
           QCheck_alcotest.to_alcotest descriptions_round_trip;
+          Alcotest.test_case "outside its bounds" `Quick out_of_bounds;
+          QCheck_alcotest.to_alcotest bounds_round_trip;
           Alcotest.test_case "bytes" `Quick bytes;
           Alcotest.test_case "numbers as typed" `Quick
             test_numbers_are_written_as_typed;
@@ -3104,8 +3340,11 @@ let () =
           Alcotest.test_case "what once did not compile" `Quick derived_awkward;
           Alcotest.test_case "the stdlib's types by their modules' names" `Quick
             derived_qualified;
-          Alcotest.test_case "an instant and a duration" `Quick derived_times;
+          Alcotest.test_case "an instant, a duration and a UUID" `Quick
+            derived_times;
           Alcotest.test_case "attributes" `Quick derived_attributes;
+          Alcotest.test_case "read-only and write-only" `Quick access;
+          Alcotest.test_case "OCaml's own deprecation" `Quick derived_deprecated;
         ] );
       ( "kinds",
         [
@@ -3117,7 +3356,7 @@ let () =
           Alcotest.test_case "uuid" `Quick
             (kind_rows "uuid" (J.uuid ()) uuid_rows);
           Alcotest.test_case "uuid v7" `Quick
-            (kind_rows "uuid v7" (J.uuid ~version:`V7 ()) uuid7_rows);
+            (kind_rows "uuid v7" (J.uuid ~version:V7 ()) uuid7_rows);
           Alcotest.test_case "base64" `Quick
             (kind_rows "base64" J.base64 base64_rows);
           Alcotest.test_case "base64url" `Quick

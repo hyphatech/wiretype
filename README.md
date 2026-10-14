@@ -12,7 +12,7 @@ Describe a JSON shape once, or derive it from your type. That one value
 reads a document and reports every problem in it, writes a value, checks
 the bounds it states, and prints itself as JSON Schema 2020-12 and as Zod,
 so a server, a browser and a model's tool call read the same contract.
-Depends on Ptime and Mtime alone.
+Depends on Ptime, Mtime and Uuidm alone.
 
 ## Install
 
@@ -111,8 +111,13 @@ walk it too.
   twice is refused, as I-JSON has it. JSONTestSuite runs whole.
 - **Absent and `null` said once**: `opt_mem` reads either as `None` and
   writes `None` by leaving the member out; `mem ~absent` gives a default.
-- **What it writes, it reads**: text that is not UTF-8, a member written
-  twice or nesting past 512 is refused on writing, at its path with a
+- **Read-only and write-only on the wire**: a read-only member -- an
+  `id` -- is the server's, never read: a request that sends one back has
+  it skipped, and it reads as its default. A write-only member -- a
+  password -- is never written.
+- **What it writes, it reads**: a value outside a bound its description
+  states, text that is not UTF-8, a member written twice or nesting past
+  512 is refused on writing, at its path with a
   code (`J.Unwritable`), as a kind's value it cannot spell is. An option
   of what already writes `null` -- an option of an option, of `J.null`,
   of any JSON -- is refused where it is built, since `None` and `Some`
@@ -120,7 +125,8 @@ walk it too.
 
 ## Kinds
 
-Each is a plain OCaml type, or Ptime's or Mtime's for a time, with its
+Each is a plain OCaml type, or Ptime's or Mtime's for a time and Uuidm's
+for a UUID, with its
 schema's `format` and its Zod check, and accepts no string that check
 refuses.
 
@@ -129,7 +135,7 @@ refuses.
 | `J.instant` | `Ptime.t`, to the ms | RFC 3339 `date-time` |
 | `J.date` | `int * int * int` | `YYYY-MM-DD` |
 | `J.duration` | `Mtime.Span.t`, to the ms | ISO 8601, weeks or days to seconds |
-| `J.uuid ?version ()` | `string` | RFC 9562 |
+| `J.uuid ?version ()` | `Uuidm.t` | RFC 9562 |
 | `J.base64`, `J.base64url` | `string`, the bytes | RFC 4648 |
 | `J.uri` | `string` | RFC 3986, held to the URL standard, IDNA included |
 | `J.ipv4`, `J.ipv6` | `string` | dotted decimal, IPv6 |
@@ -161,7 +167,8 @@ JSON, an integer's bound past 2^53 -- is printed loosely and listed in
 from records, enums, tagged unions, polymorphic variants, type parameters
 and recursive types. Bounds, defaults, `[@with d]`, read-only, write-only,
 deprecated and examples are attributes, and a doc comment is the doc. A
-`Ptime.t` is an instant and an `Mtime.Span.t` a duration.
+`Ptime.t` is an instant, an `Mtime.Span.t` a duration and a `Uuidm.t` a
+UUID.
 [Its `.mli`](ppx/ppx_wiretype.mli) lists every attribute.
 
 Each module's `.mli` is its reference.
@@ -179,7 +186,7 @@ Each module's `.mli` is its reference.
 
 | Package | What it is |
 |---|---|
-| `wiretype` | descriptions: reading, writing, bounds, kinds, schemas; links Ptime and Mtime alone |
+| `wiretype` | descriptions: reading, writing, bounds, kinds, schemas; links Ptime, Mtime and Uuidm alone |
 | `ppx_wiretype` | `[@@deriving wiretype]`, which writes a type's description |
 
 ## Contributing

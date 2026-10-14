@@ -50,6 +50,12 @@ let enter path depth =
         "This is nested more than %d deep, %d %s below here." max_depth below
         (if below = 1 then "level" else "levels")
 
+(* A bound broken is refused in the words a reader says it in, the first
+   the description states. *)
+let within path = function
+  | [] -> ()
+  | (_, message) :: _ -> fail path U.Out_of_bounds "%s" message
+
 let named (about : S.about) =
   if String.equal about.kind "" then "value" else about.kind
 
@@ -67,12 +73,20 @@ and described : type a. Buffer.t -> path -> int -> int -> a S.t -> a -> unit =
   match shape with
   | S.Null _ -> Buffer.add_string b "null"
   | S.Bool -> Buffer.add_string b (if v then "true" else "false")
-  | S.Int _ -> Buffer.add_string b (string_of_int v)
-  | S.Int64 _ -> Buffer.add_string b (Int64.to_string v)
-  | S.Number _ ->
-      if Float.is_finite v then Text.number b v
-      else fail path U.Unspellable "%s is no JSON number." (Float.to_string v)
-  | S.String _ -> text b path v
+  | S.Int bounds ->
+      within path (Bounds.int bounds v);
+      Buffer.add_string b (string_of_int v)
+  | S.Int64 bounds ->
+      within path (Bounds.int64 bounds v);
+      Buffer.add_string b (Int64.to_string v)
+  | S.Number bounds ->
+      if not (Float.is_finite v) then
+        fail path U.Unspellable "%s is no JSON number." (Float.to_string v);
+      within path (Bounds.number bounds v);
+      Text.number b v
+  | S.String length ->
+      within path (Bounds.length length v);
+      text b path v
   | S.Enum (_, e) ->
       let w = e.word v in
       if List.exists (fun (w', _) -> String.equal w w') e.words then
@@ -80,6 +94,9 @@ and described : type a. Buffer.t -> path -> int -> int -> a S.t -> a -> unit =
       else fail path U.Unspellable "%S is not one of this enum's words." w
   | S.List l ->
       enter path depth;
+      (match (l.min_items, l.max_items) with
+      | None, None -> ()
+      | min, max -> within path (Bounds.items ~min ~max (List.length v)));
       Buffer.add_char b '[';
       List.iteri
         (fun i x ->
@@ -94,6 +111,9 @@ and described : type a. Buffer.t -> path -> int -> int -> a S.t -> a -> unit =
       Buffer.add_char b ']'
   | S.Dict d ->
       enter path depth;
+      (match (d.min_properties, d.max_properties) with
+      | None, None -> ()
+      | min, max -> within path (Bounds.members ~min ~max (List.length v)));
       (* An entry is said by its place in the list: its name is what could
          not be written, or written twice. *)
       let names = Hashtbl.create 8 and name = Buffer.create 16 in
@@ -144,7 +164,7 @@ and described : type a. Buffer.t -> path -> int -> int -> a S.t -> a -> unit =
           fail path U.Read_only "This %s is read and never written."
             (named about))
   | S.Map (about, m) -> (
-      match m.enc with
+      match m.print with
       | None ->
           fail path U.Read_only "This %s is read and never written."
             (named about)
@@ -246,11 +266,13 @@ and base : type o f.
   | S.Cases (prev, _) -> base b path depth prev v first
   | S.Mem (prev, m) -> (
       let first = base b path depth prev v first in
-      match m.get with
-      | None ->
+      match (m.access, m.get) with
+      (* A write-only member is a request's alone: a password. *)
+      | S.Write_only, _ -> first
+      | (S.Read_write | S.Read_only), None ->
           fail (P.Member m.name :: path) U.Read_only
             "This member is read and never written."
-      | Some enc ->
+      | (S.Read_write | S.Read_only), Some enc ->
           let x = enc v in
           let omitted = match m.omit with Some f -> f x | None -> false in
           if omitted then first else member b path depth first m.name m.shape x)

@@ -312,8 +312,8 @@ let test_what_is_loose_is_reported () =
   let rec rose =
     lazy
       (Wiretype.map
-         ~dec:(fun l -> `Rose l)
-         ~enc:(fun (`Rose l) -> l)
+         ~parse:(fun l -> `Rose l)
+         ~print:(fun (`Rose l) -> l)
          (Wiretype.list (Wiretype.rec' rose)))
   in
   let ctx, root = walked (Lazy.force rose) in
@@ -339,6 +339,20 @@ let test_what_is_loose_is_reported () =
     "an example that cannot be written is an error" true
     (List.exists
        (contains ~sub:"x.when: An example cannot be written")
+       (error_lines ctx));
+  let ctx = S.create () in
+  ignore
+    (S.walk ctx S.Encode ~at:"x"
+       (Wiretype.Object.map Fun.id
+       |> Wiretype.Object.mem "n"
+            (Wiretype.int_bounded ~max:9 ())
+            ~enc:Fun.id ~examples:[ 10 ]
+       |> Wiretype.Object.finish)
+      : S.t);
+  Alcotest.(check bool)
+    "and so is one outside its bounds" true
+    (List.exists
+       (contains ~sub:"x.n: An example cannot be written")
        (error_lines ctx))
 
 (* A member nobody describes is refused by the schema as by the reader, and a
@@ -382,23 +396,23 @@ type value =
 let value_json =
   let flag =
     Wiretype.map
-      ~dec:(fun b -> Flag b)
-      ~enc:(function Flag b -> b | _ -> false)
+      ~parse:(fun b -> Flag b)
+      ~print:(function Flag b -> b | _ -> false)
       Wiretype.bool
   and count =
     Wiretype.map
-      ~dec:(fun n -> Count n)
-      ~enc:(function Count n -> n | _ -> 0.)
+      ~parse:(fun n -> Count n)
+      ~print:(function Count n -> n | _ -> 0.)
       Wiretype.number
   and word =
     Wiretype.map
-      ~dec:(fun w -> Word w)
-      ~enc:(function Word w -> w | _ -> "")
+      ~parse:(fun w -> Word w)
+      ~print:(function Word w -> w | _ -> "")
       Wiretype.string
   and words =
     Wiretype.map
-      ~dec:(fun ws -> Words ws)
-      ~enc:(function Words ws -> ws | _ -> [])
+      ~parse:(fun ws -> Words ws)
+      ~print:(function Words ws -> ws | _ -> [])
       Wiretype.(list string)
   in
   let boxed =
@@ -440,7 +454,7 @@ type account = { id : int; email : string }
 
 let account =
   Wiretype.Object.map ~kind:"account" (fun id email -> { id; email })
-  |> Wiretype.Object.mem "id" Wiretype.int ~access:`Read_only ~absent:0
+  |> Wiretype.Object.mem "id" Wiretype.int ~access:Read_only ~absent:0
        ~enc:(fun a -> a.id)
   |> Wiretype.Object.mem "email" Wiretype.string ~enc:(fun a -> a.email)
   |> Wiretype.Object.finish
@@ -563,7 +577,7 @@ let test_what_the_reader_means () =
       "z.int()",
       [ "test: a bound past 2^53, which a double holds only roughly" ] )
     (printed (Wiretype.int_bounded ~max:max_int ()));
-  let json, _, _ = printed (Wiretype.uuid ~version:`V7 ()) in
+  let json, _, _ = printed (Wiretype.uuid ~version:V7 ()) in
   Alcotest.(check string)
     "a UUID's version, which JSON Schema has no format for"
     {|{"type":"string","format":"uuid","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"}|}
@@ -608,7 +622,7 @@ let test_each_is_said () =
     Wiretype.Object.map (fun a b -> (a, b))
     |> Wiretype.Object.mem "old" Wiretype.int ~deprecated:true ~doc:"gone"
          ~enc:fst
-    |> Wiretype.Object.mem "password" Wiretype.string ~access:`Write_only
+    |> Wiretype.Object.mem "password" Wiretype.string ~access:Write_only
          ~enc:snd
     |> Wiretype.Object.finish
   in
@@ -650,7 +664,7 @@ let test_each_is_said () =
       ("a uuid", "z.uuid()", zod (Wiretype.uuid ()));
       ( "a uuid of one version",
         {|z.uuid({ version: "v4" })|},
-        zod (Wiretype.uuid ~version:`V4 ()) );
+        zod (Wiretype.uuid ~version:V4 ()) );
       ("base64", "z.base64()", zod Wiretype.base64);
       ("base64url", "z.base64url()", zod Wiretype.base64url);
       ("a uri", "z.url()", zod Wiretype.uri);
@@ -666,7 +680,7 @@ let test_a_kind_of_ones_own_is_said () =
     (V.to_string (S.Json_schema.of_t root), S.Zod.of_t root)
   in
   let day ?format () =
-    Wiretype.kind ~name:"day" ?format ~parse:Result.ok ~print:Fun.id
+    Wiretype.kind ~kind:"day" ?format ~parse:Result.ok ~print:Fun.id
       Wiretype.string
   in
   Alcotest.(check (pair string string))
@@ -779,11 +793,11 @@ let test_a_doc_is_said_of_every_shape () =
     ( {|{"type":"string","format":"date","description":"A day of the shop's."}|},
       "z.iso.date()" )
     (printed
-       (Wiretype.kind ~name:"day" ~doc:"A day of the shop's."
+       (Wiretype.kind ~kind:"day" ~doc:"A day of the shop's."
           ~format:Wiretype.Shape.Date ~parse:Result.ok ~print:Fun.id
           Wiretype.string));
   let cents =
-    Wiretype.map ~doc:"In cents." ~dec:Fun.id ~enc:Fun.id Wiretype.int
+    Wiretype.map ~doc:"In cents." ~parse:Fun.id ~print:Fun.id Wiretype.int
   in
   Alcotest.(check (pair string string))
     "a map's"
@@ -796,7 +810,10 @@ let test_a_doc_is_said_of_every_shape () =
     (printed
        (Wiretype.any ~doc:"A flag or a count."
           ~dec_bool:
-            (Wiretype.map ~dec:(fun _ -> 0.) ~enc:(fun _ -> true) Wiretype.bool)
+            (Wiretype.map
+               ~parse:(fun _ -> 0.)
+               ~print:(fun _ -> true)
+               Wiretype.bool)
           ~dec_number:Wiretype.number
           ~enc:(fun _ -> Wiretype.number)
           ()));
@@ -946,7 +963,7 @@ let test_a_ready_made_kind_says_no_doc () =
     "and one its user gives, as any"
     {|{"type":"string","format":"date-time","description":"When it opens."}|}
     (json
-       (Wiretype.map ~doc:"When it opens." ~dec:Fun.id ~enc:Fun.id
+       (Wiretype.map ~doc:"When it opens." ~parse:Fun.id ~print:Fun.id
           Wiretype.instant))
 
 (* ------------------------------------------------------------------ *)

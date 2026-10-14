@@ -3,7 +3,10 @@
     document written in part is no document. *)
 
 type code =
-  | Read_only  (** a description made only to read: no [enc] *)
+  | Read_only
+      (** a description made only to read: a member or a union with no [enc], a
+          {!Wiretype.map} or a {!Wiretype.kind} with no [print], an
+          {!Wiretype.any} with no [enc] *)
   | Unspellable
       (** a value its kind cannot write: a date past the year 9999; or any
           value, where its description is only itself *)
@@ -15,6 +18,11 @@ type code =
       (** nested past what {!Wiretype.decode} reads by default: at the first 16
           segments of its path, a place the value has, where a deeper path would
           be a line no log keeps; its sentence says how many levels below *)
+  | Out_of_bounds
+      (** a value outside a bound its description states -- a least or a most, a
+          multiple, a length or a count -- which {!Wiretype.decode} would
+          refuse: its sentence is the one a reader says, which names the bound
+      *)
 
 val code_to_string : code -> string
 (** [read_only], [not_utf8], ...: the word a log or a client reads. *)

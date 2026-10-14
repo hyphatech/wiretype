@@ -115,7 +115,9 @@ type error_code =
   | Kind_shared  (** two different descriptions under one kind's name *)
   | Kind_not_a_name  (** a kind whose name does not begin with a letter *)
   | Key_not_text  (** a map's key whose description is not text *)
-  | Unwritable  (** a case's tag, or an example, that cannot be written *)
+  | Unwritable
+      (** a case's tag, or an example, that cannot be written: an example
+          outside its member's bounds among them *)
 
 type error = { at : string; code : error_code; message : string }
 (** [at] is where the description is used, as {!walk}'s [at] and the path below

@@ -295,15 +295,15 @@ let duration_to_string span =
 (* ------------------------------------------------------------------ *)
 (* UUIDs *)
 
-let uuid_version_number = function
-  | `V1 -> 1
-  | `V2 -> 2
-  | `V3 -> 3
-  | `V4 -> 4
-  | `V5 -> 5
-  | `V6 -> 6
-  | `V7 -> 7
-  | `V8 -> 8
+let uuid_version_number : Shape.uuid_version -> int = function
+  | V1 -> 1
+  | V2 -> 2
+  | V3 -> 3
+  | V4 -> 4
+  | V5 -> 5
+  | V6 -> 6
+  | V7 -> 7
+  | V8 -> 8
 
 let not_a_uuid version =
   match version with
@@ -351,7 +351,9 @@ let uuid_of_string ?version s =
         special
         || ((match s.[14] with '1' .. '8' -> true | _ -> false) && variant)
   in
-  if ok then Ok (String.lowercase_ascii s) else Error (not_a_uuid version)
+  match Uuidm.of_string s with
+  | Some u when ok -> Ok u
+  | Some _ | None -> Error (not_a_uuid version)
 
 (* ------------------------------------------------------------------ *)
 (* Base64 *)

@@ -39,8 +39,15 @@ type number_bounds = {
 type length = { min_length : int option; max_length : int option }
 (** In code points, as JSON Schema counts a string's length. *)
 
-type uuid_version = [ `V1 | `V2 | `V3 | `V4 | `V5 | `V6 | `V7 | `V8 ]
-(** The versions RFC 9562 defines. *)
+type uuid_version =
+  | V1
+  | V2
+  | V3
+  | V4
+  | V5
+  | V6
+  | V7
+  | V8  (** The versions RFC 9562 defines. *)
 
 (** What a string is written in, where a schema has a word for it. *)
 type format =
@@ -58,12 +65,12 @@ type format =
 (** What an object does with a member it does not describe. *)
 type unknown = Skip | Refuse
 
-type access =
-  [ `Read_write  (** in requests and answers *)
-  | `Read_only  (** in answers alone: the server's to give *)
-  | `Write_only  (** in requests alone: a password *) ]
 (** Which of a request and an answer a member is in, as OpenAPI's [readOnly] and
     [writeOnly] say. *)
+type access =
+  | Read_write  (** in requests and answers *)
+  | Read_only  (** in answers alone: the server's to give, never read *)
+  | Write_only  (** in requests alone, never written: a password *)
 
 type 'a enum = {
   words : (string * 'a) list;
@@ -182,9 +189,9 @@ and 'a any = {
 and ('a, 'b) map = {
   format : format option;
   inner : 'a t;
-  dec : ('a -> ('b, string) result) option;
+  parse : ('a -> ('b, string) result) option;
       (** [Error] is a sentence for a person: what is wrong with the value *)
-  enc : ('b -> ('a, string) result) option;
+  print : ('b -> ('a, string) result) option;
 }
 (** A description of another type, over [inner]: a kind -- an instant, an id --
     or a plain change of type. A direction left out is one it is never used in.

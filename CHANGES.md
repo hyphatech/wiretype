@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+- `Value.write`'s documentation says it checks nothing `encode` checks --
+  a non-finite number is written `null`, text that is not UTF-8 and a
+  member given twice as they are -- where it said it wrote as `encode`
+  does.
+- Breaking: one spelling for a description over a type of one's own, as
+  in spindle and rowtype: the function from what the description reads
+  is `~parse` and the one back is `~print`. `map ?dec ?enc` is
+  `map ?parse ?print`, and `Shape.map`'s fields `dec` and `enc` are
+  `parse` and `print`. A description's name is `~kind` everywhere, so
+  `kind ~name` is `kind ~kind`.
+- Breaking: `uuid` is a `Uuidm.t`, where it was a `string`, as a UUID is
+  in rowtype and postgres-eio, so one identifier crosses them as one
+  type. It is read in either case and written in lower case, and one of
+  another version than asked for, or of no variant RFC 9562 defines, is
+  `unspellable` on writing. The deriver describes a `Uuidm.t` by it. The
+  `wiretype` package depends on Uuidm (0.9.10 or later), which depends on
+  nothing.
+- Breaking: `encode` checks every bound its description states -- a least
+  and a most, a multiple, a length, a count of items or of a map's
+  members -- and refuses a value outside one with the new
+  `Unwritable.Out_of_bounds`, at its place, in the sentence `decode` says
+  it in, where it wrote a document `decode` then refused. An example a
+  schema publishes is written by `encode`, so one outside its member's
+  bounds is a schema's `Unwritable` error. A bounded value costs a few
+  per cent more to write, and allocates nothing more: a record of four
+  bounded members, ten thousand of them, is written in 7.5 ms where it
+  took 7.0.
+- Breaking: a member's access is kept on the wire as well as in the
+  schema. `encode` leaves out a write-only member, where it wrote a
+  password into every answer, and `decode` never reads a read-only one:
+  one a request holds is skipped, as a client sends back the object it
+  was given, and the member reads as its `absent`, where a client could
+  set the server's `id` and a request as its schema describes it was
+  refused for leaving `id` out. `Object.finish` raises for a read-only
+  member with no `absent` in an object that is read, which it could not
+  build, and the deriver refuses a `[@read_only]` field with no
+  `[@default]` that is no option, saying to give it one.
+- Breaking: `Shape.access` and `Shape.uuid_version` are ordinary
+  variants, where they were polymorphic ones, as a closed set is in every
+  Hypha library: `~access:Read_only` and `~version:V7`, the type naming
+  the constructor, where `` ~access:`Read_only `` was written.
+- Breaking: the deriver reads a member as deprecated only by
+  `[@wiretype.deprecated]`, where OCaml's own `[@deprecated]` was taken
+  for it: one with a payload, `[@deprecated "use y"]`, was refused, and a
+  bare one made the derived code use the field it marks, which the
+  compiler's alert then stopped. A field or a constructor OCaml's
+  attribute marks is derived as any other, and its alert is left for the
+  code a person wrote.
 - A description of itself is built by the domain that first reaches it,
   and another reaching it then waits for it, where it was told
   `Lazy.Undefined` and `decode` and `encode` raised it. A recursive type

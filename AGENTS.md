@@ -20,11 +20,14 @@ runs `make lint` and `make test` on OCaml 5.5.
 ## Layout
 
 ```
-src/                 wiretype: depends on Ptime and Mtime alone
+src/                 wiretype: depends on Ptime, Mtime and Uuidm alone
   shape              the GADT a description is, public: the library's promise
   wiretype           the combinators, the kinds, decode and encode
   decode, encode     one pass over text with a description in hand; the writer
+  bounds             the bounds a description states, held alike by both
   grammar            the kinds' grammars, hand-written
+  itself             a description of itself, built by the first domain to
+                     reach it while another waits
   schema             one walk into a schema, printed as JSON Schema and Zod
   problem,           what a reader is told, what a writer is told, any JSON,
   unwritable,        and the two spellings
@@ -51,15 +54,18 @@ module.
 Each rule comes with why it exists and the test or search that catches a
 break.
 
-- **The `wiretype` package depends on Ptime and Mtime alone.** `src/dune`
-  names `ptime` and `mtime` and no other library, and the package depends
-  on OCaml, Ptime and Mtime alone, which depend on nothing themselves. Why:
-  a contract library is reached for by programs on any stack, and one that
-  brings a framework or a parser with it is one they do not take; but an
-  instant is a `Ptime.t` and a duration an `Mtime.Span.t` wherever a
-  program keeps time, and a kind over any other type is a conversion its
-  user writes at every call. Symptom: `rg -n libraries src/dune` names a
-  library but `ptime` and `mtime`, or `wiretype.opam` depends on a package
+- **The `wiretype` package depends on Ptime, Mtime and Uuidm alone.**
+  `src/dune` names `ptime`, `mtime` and `uuidm` and no other library, and
+  the package depends on OCaml, Ptime, Mtime and Uuidm alone, which depend
+  on nothing themselves. Why: a contract library is reached for by
+  programs on any stack, and one that brings a framework or a parser with
+  it is one they do not take; but an instant is a `Ptime.t` and a duration
+  an `Mtime.Span.t` wherever a program keeps time, and a UUID a `Uuidm.t`
+  wherever it keeps an identifier -- rowtype's column and postgres-eio's
+  parameter are one too, so one identifier crosses the ecosystem as one
+  type -- and a kind over any other type is a conversion its user writes
+  at every call. Symptom: `rg -n libraries src/dune` names a library but
+  `ptime`, `mtime` and `uuidm`, or `wiretype.opam` depends on a package
   but those, `ocaml` and `dune` outside a test's or a developer's filter.
 - **A member given twice is refused, anywhere in a document.** The wiretype
   library reads no document a second reader could read another way, as I-JSON
@@ -99,16 +105,18 @@ break.
   length or count, a `multiple_of` that is not positive, two values with one
   word, a member described twice, two unions in one object, a case that is
   not an object, a member written by leaving it out that is read as
-  required, a `nullable` or an `opt_mem` over what writes null for a value
-  of its own -- since a description is a constant written in source, and
+  required, a read-only member with no `absent` in an object that is read,
+  a `nullable` or an `opt_mem` over what writes null for a value of its own
+  -- since a description is a constant written in source, and
   the mistake is found when the program starts, never on a request. Each
   function's `.mli` says when it raises. The deriver refuses these at compile
   time, where it sees them in the type: a name given twice, two
   constructors written alike, an option of an option or of `unit` wherever
   it is, a least and a most written as literals with no value between
-  them, a case whose one argument is a scalar, a list, an option or a
-  tuple. The rest it leaves to the library, when the program starts: a
-  bound that means nothing alone, though written as a literal
+  them, a read-only field with no default that is no option, a case whose
+  one argument is a scalar, a list, an option or a tuple. The rest it
+  leaves to the library, when the program starts: a bound that means
+  nothing alone, though written as a literal
   (`[@multiple_of 0]`, a negative `[@min_length]`, `[@min nan]`), and
   what it cannot see -- a case whose one argument is a type named
   elsewhere that is no object, an option of a type named elsewhere that
