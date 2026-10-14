@@ -8,7 +8,7 @@ changing it, human or agent. Users start at [README.md](README.md).
 ## Commands
 
 ```sh
-make setup   # once: local opam switch in ./_opam, all dependencies, and Zod
+make setup   # once: the switch hypha-wiretype, all dependencies, and Zod
 make test    # every suite, and the kinds' rows through Zod
 make lint    # formatting, odoc, and the release build
 make fmt     # format in place

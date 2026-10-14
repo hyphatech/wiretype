@@ -1,8 +1,5 @@
-# The opam switch is the checkout's (./_opam), so OCaml commands go through
-# opam exec. A worktree lives outside its checkout and uses its switch,
-# found through git.
-CHECKOUT := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir))
-OPAM = opam exec --switch=$(CHECKOUT) --
+SWITCH ?= hypha-wiretype
+OPAM = opam exec --switch=$(SWITCH) --
 
 .DEFAULT_GOAL := help
 .PHONY: help setup build test test-zod lint fmt doc
@@ -11,10 +8,10 @@ help: ## list targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
 
-setup: ## create the local switch and install dependencies
+setup: ## create the switch and install dependencies
 	@command -v node >/dev/null 2>&1 || echo "The Zod rows need Node 24 or later."
-	@[ -d $(CHECKOUT)/_opam ] || opam switch create $(CHECKOUT) 5.5.1 --no-install -y
-	opam install . --switch=$(CHECKOUT) --deps-only --with-test --with-dev-setup -y
+	@opam switch list --short | grep -qx $(SWITCH) || opam switch create $(SWITCH) --empty -y
+	opam install . --switch=$(SWITCH) --deps-only --with-test --with-dev-setup -y
 	cd test/zod && npm ci
 
 build: ## build everything
