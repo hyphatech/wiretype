@@ -17,7 +17,8 @@ Depends on Ptime, Mtime and Uuidm alone.
 ## Install
 
 ```sh
-opam pin add https://github.com/hyphatech/wiretype.git
+opam repo add hypha https://github.com/hyphatech/opam-repository.git
+opam install wiretype ppx_wiretype
 ```
 
 ```lisp
