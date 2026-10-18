@@ -1,0 +1,37 @@
+; The shapes' rows in the browser's runtime: the module printed for the
+; fixtures' shapes, compiled by Melange beside the rows' runner and run by
+; Bun over the same rows the server reads.
+
+; What the printer writes today, against the copy committed here: `dune
+; promote` takes the new one.
+
+(rule
+ (with-stdout-to
+  printed.gen.ml
+  (run ../print_shapes.exe)))
+
+(rule
+ (alias runtest)
+ (action
+  (diff printed.ml printed.gen.ml)))
+
+(melange.emit
+ (target out)
+ (modules printed run)
+ (libraries melange.js)
+ (preprocess
+  (pps melange.ppx))
+ (module_systems es6))
+
+(rule
+ (alias runtest)
+ (deps
+  (alias melange)
+  ../fixtures/shapes.json
+  ../fixtures/kinds.json)
+ (action
+  (run
+   bun
+   %{dep:out/test/melange/run.js}
+   ../fixtures/shapes.json
+   ../fixtures/kinds.json)))

@@ -9,10 +9,10 @@ help: ## list targets
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
 
 setup: ## create the switch and install dependencies
-	@command -v node >/dev/null 2>&1 || echo "The Zod rows need Node 24 or later."
+	@command -v bun >/dev/null 2>&1 || echo "The Zod rows need Bun 1.3 or later."
 	@opam switch list --short | grep -qx $(SWITCH) || opam switch create $(SWITCH) --empty -y
 	opam install . --switch=$(SWITCH) --deps-only --with-test --with-dev-setup -y
-	cd test/zod && npm ci
+	cd test/zod && bun install --frozen-lockfile
 
 build: ## build everything
 	$(OPAM) dune build @all
@@ -22,7 +22,7 @@ test: test-zod ## run the tests
 
 # The kinds' rows as Zod reads them, beside the OCaml suite's.
 test-zod: ## run the kinds' rows through Zod
-	cd test/zod && node --test
+	cd test/zod && bun test
 
 # Release is the profile opam installs with.
 lint: ## check formatting, docs and the release build

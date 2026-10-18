@@ -998,3 +998,769 @@ module Zod = struct
     in
     String.concat "" (go cs)
 end
+
+(* ------------------------------------------------------------------ *)
+(* Melange *)
+
+module Melange = struct
+  (* ---------------------------------------------------------------- *)
+  (* Names *)
+
+  let keywords =
+    [
+      "and";
+      "as";
+      "assert";
+      "asr";
+      "begin";
+      "class";
+      "constraint";
+      "do";
+      "done";
+      "downto";
+      "else";
+      "end";
+      "exception";
+      "external";
+      "false";
+      "for";
+      "fun";
+      "function";
+      "functor";
+      "if";
+      "in";
+      "include";
+      "inherit";
+      "initializer";
+      "land";
+      "lazy";
+      "let";
+      "lor";
+      "lsl";
+      "lsr";
+      "lxor";
+      "match";
+      "method";
+      "mod";
+      "module";
+      "mutable";
+      "new";
+      "nonrec";
+      "object";
+      "of";
+      "open";
+      "or";
+      "private";
+      "rec";
+      "sig";
+      "struct";
+      "then";
+      "to";
+      "true";
+      "try";
+      "type";
+      "val";
+      "virtual";
+      "when";
+      "while";
+      "with";
+    ]
+
+  let is_lower c = match c with 'a' .. 'z' -> true | _ -> false
+  let is_upper c = match c with 'A' .. 'Z' -> true | _ -> false
+  let is_digit c = match c with '0' .. '9' -> true | _ -> false
+
+  (* Each run of characters an identifier cannot hold as one [_]. *)
+  let cleaned s =
+    let b = Buffer.create (String.length s) in
+    let gap = ref false in
+    String.iter
+      (fun c ->
+        if is_lower c || is_upper c || is_digit c || Char.equal c '\'' then (
+          if !gap && Buffer.length b > 0 then Buffer.add_char b '_';
+          gap := false;
+          Buffer.add_char b c)
+        else gap := true)
+      s;
+    Buffer.contents b
+
+  (* [OrderLine] is [order_line], and [HTTPRequest] is [http_request]. *)
+  let snake s =
+    let b = Buffer.create (String.length s + 4) in
+    let n = String.length s in
+    String.iteri
+      (fun i c ->
+        if
+          is_upper c && i > 0
+          && (is_lower s.[i - 1]
+             || is_digit s.[i - 1]
+             || (i + 1 < n && is_lower s.[i + 1] && is_upper s.[i - 1]))
+        then Buffer.add_char b '_';
+        Buffer.add_char b (Char.lowercase_ascii c))
+      s;
+    Buffer.contents b
+
+  let lower_name s =
+    let s = snake (cleaned s) in
+    let s = if String.equal s "" then "_" else s in
+    let s = if is_digit s.[0] then "_" ^ s else s in
+    if List.mem s keywords then s ^ "_" else s
+
+  let name = lower_name
+
+  let upper_name s =
+    let s = cleaned s in
+    if String.equal s "" then "Empty"
+    else if is_lower s.[0] then String.capitalize_ascii s
+    else if is_upper s.[0] then s
+    else "W" ^ s
+
+  (* A name not yet in [taken]: a twin gets [_2]. *)
+  let fresh taken base =
+    let rec go i =
+      let s = if i = 1 then base else Printf.sprintf "%s_%d" base i in
+      if List.mem s !taken then go (i + 1)
+      else (
+        taken := s :: !taken;
+        s)
+    in
+    go 1
+
+  (* ---------------------------------------------------------------- *)
+  (* Literals *)
+
+  let contains ~sub s =
+    let n = String.length sub in
+    let rec go i =
+      i + n <= String.length s
+      && (String.equal (String.sub s i n) sub || go (i + 1))
+    in
+    go 0
+
+  (* A string as Melange reads one for JavaScript, by a delimiter the text
+     does not hold. *)
+  let lit s =
+    let rec pick i =
+      let d = if i = 0 then "js" else Printf.sprintf "j%d" i in
+      if contains ~sub:("|" ^ d ^ "}") s then pick (i + 1) else d
+    in
+    let d = pick 0 in
+    "{" ^ d ^ "|" ^ s ^ "|" ^ d ^ "}"
+
+  let float_lit f =
+    let s = Value.to_string (Value.Number f) in
+    "(" ^ (if Float.is_integer f then s ^ "." else s) ^ ")"
+
+  let int_lit n = Printf.sprintf "(%d)" n
+
+  let int_arg name = function
+    | None -> ""
+    | Some n -> Printf.sprintf " ~%s:%s" name (int_lit n)
+
+  let float_arg name = function
+    | None -> ""
+    | Some f -> Printf.sprintf " ~%s:%s" name (float_lit f)
+
+  (* Both bounds within 32 bits, which Melange's int holds. *)
+  let fits_int (b : number) =
+    match (b.min, b.max) with
+    | Some lo, Some hi -> lo >= -2147483648. && hi <= 2147483647.
+    | _ -> false
+
+  (* A comment's text may not close it. *)
+  let comment doc =
+    let b = Buffer.create (String.length doc) in
+    String.iteri
+      (fun i c ->
+        if Char.equal c ')' && i > 0 && Char.equal doc.[i - 1] '*' then
+          Buffer.add_string b " )"
+        else Buffer.add_char b c)
+      doc;
+    "(* " ^ Buffer.contents b ^ " *)"
+
+  (* [t option] and [t array], with [t] in parentheses where it has
+     structure of its own. *)
+  let paren ty =
+    if
+      String.contains ty ' '
+      && not
+           (String.ends_with ~suffix:" array" ty
+           || String.ends_with ~suffix:" option" ty)
+    then "(" ^ ty ^ ")"
+    else ty
+
+  (* ---------------------------------------------------------------- *)
+  (* The printing *)
+
+  (* A type the module declares, in its one recursive group: a record, an
+     enum's or a union's variant, or a component's alias. *)
+  type decl = { tname : string; tdoc : string; body : string }
+
+  type st = {
+    mutable decls : decl list;  (** newest first *)
+    types : string list ref;  (** every type name taken *)
+  }
+
+  (* What a node of a schema is printed as: its type, and the reader and the
+     writer of it, each an expression. *)
+  type printed = { ty : string; read : string; write : string }
+
+  (* An object's members, printed for a record or a case. *)
+  type members = {
+    fields : string;  (** the fields of its type *)
+    build : tag:string option -> (string -> string) -> string;
+        (** the reading of every member from [o], then [make] applied to the
+            record expression once each has read *)
+    written : string -> string;  (** each member written from a value *)
+    empty : bool;
+  }
+
+  (* The sort a union's alternative is read by. *)
+  let sort_of = function
+    | Boolean -> `Boolean
+    | Number _ | Integer _ -> `Number
+    | String _ -> `String
+    | Array _ | Tuple _ -> `Array
+    | Dict _ | Object _ | Ref _ | Tagged _ -> `Object
+    | Null -> `Null
+    | Any | Nullable _ | Union _ | Described _ -> `Any
+
+  let sort_ctor = function
+    | `Boolean -> "Boolean"
+    | `Number -> "Number"
+    | `String -> "String"
+    | `Array -> "Array"
+    | `Object -> "Object"
+    | `Null -> "Null"
+    | `Any -> "Any"
+
+  let sort_words = function
+    | `Boolean -> "true or false"
+    | `Number -> "a number"
+    | `String -> "text"
+    | `Array -> "a list"
+    | `Object -> "an object"
+    | `Null -> "null"
+    | `Any -> "anything"
+
+  let sort_pattern = function
+    | `Boolean -> "JSONTrue | JSONFalse"
+    | `Number -> "JSONNumber _"
+    | `String -> "JSONString _"
+    | `Array -> "JSONArray _"
+    | `Object -> "JSONObject _"
+    | `Null -> "JSONNull"
+    | `Any -> "_"
+
+  let either = function
+    | [] -> "nothing at all"
+    | [ w ] -> w
+    | ws ->
+        let rev = List.rev ws in
+        String.concat ", " (List.rev (List.tl rev)) ^ " or " ^ List.hd rev
+
+  let declare st ~hint ~doc body =
+    let tname = fresh st.types hint in
+    st.decls <- { tname; tdoc = doc; body } :: st.decls;
+    tname
+
+  let rec node st ~hint ?(doc = "") t : printed =
+    match t with
+    | Any -> { ty = "Js.Json.t"; read = "Wire.any"; write = "Wire.w_any" }
+    | Null -> { ty = "unit"; read = "Wire.null"; write = "Wire.w_null" }
+    | Boolean -> { ty = "bool"; read = "Wire.bool"; write = "Wire.w_bool" }
+    | Number b ->
+        let args =
+          float_arg "min" b.min ^ float_arg "max" b.max
+          ^ float_arg "above" b.above ^ float_arg "below" b.below
+          ^ float_arg "multiple_of" b.multiple_of
+        in
+        {
+          ty = "float";
+          read = "(Wire.number" ^ args ^ " ())";
+          write = "(Wire.w_number" ^ args ^ " ())";
+        }
+    | Integer b when fits_int b ->
+        let args =
+          int_arg "min" (Option.map Float.to_int b.min)
+          ^ int_arg "max" (Option.map Float.to_int b.max)
+          ^ int_arg "multiple_of" (Option.map Float.to_int b.multiple_of)
+        in
+        {
+          ty = "int";
+          read = "(Wire.int" ^ args ^ " ())";
+          write = "(Wire.w_int" ^ args ^ " ())";
+        }
+    | Integer b ->
+        let args =
+          float_arg "min" b.min ^ float_arg "max" b.max
+          ^ float_arg "multiple_of" b.multiple_of
+        in
+        {
+          ty = "float";
+          read = "(Wire.whole" ^ args ^ " ())";
+          write = "(Wire.w_whole" ^ args ^ " ())";
+        }
+    | String { words = Some words; _ } ->
+        let taken = ref [] in
+        let ctors = List.map (fun w -> (w, fresh taken (upper_name w))) words in
+        let tname =
+          declare st ~hint ~doc
+            (String.concat "" (List.map (fun (_, c) -> " | " ^ c) ctors))
+        in
+        {
+          ty = tname;
+          (* A JavaScript string is no pattern in Melange, so a word is
+             compared. *)
+          read =
+            Printf.sprintf "(Wire.enum [|%s|] (fun w -> %sNone))"
+              (String.concat "; " (List.map (fun (w, _) -> lit w) ctors))
+              (String.concat ""
+                 (List.map
+                    (fun (w, c) ->
+                      Printf.sprintf
+                        "if String.equal w %s then Some (%s : %s) else " (lit w)
+                        c tname)
+                    ctors));
+          write =
+            Printf.sprintf "(Wire.w_enum (fun (v : %s) -> match v with%s))"
+              tname
+              (String.concat ""
+                 (List.map
+                    (fun (w, c) -> Printf.sprintf " | %s -> %s" c (lit w))
+                    ctors));
+        }
+    | String s -> (
+        let lengths =
+          int_arg "min_length" s.min_length ^ int_arg "max_length" s.max_length
+        in
+        let f ty r extra =
+          {
+            ty;
+            read = Printf.sprintf "(Wire.%s%s%s ())" r lengths extra;
+            write = Printf.sprintf "(Wire.w_%s%s%s ())" r lengths extra;
+          }
+        in
+        match s.format with
+        | None -> f "string" "string" ""
+        | Some S.Date_time -> f "Instant.t" "instant" ""
+        | Some S.Date -> f "int * int * int" "date" ""
+        | Some S.Duration -> f "Duration.t" "duration" ""
+        | Some (S.Uuid None) -> f "Uuid.t" "uuid" ""
+        | Some (S.Uuid (Some v)) ->
+            f "Uuid.t" "uuid"
+              (Printf.sprintf " ~version:%d" (Grammar.uuid_version_number v))
+        | Some S.Base64 -> f "string" "base64" ""
+        | Some S.Base64url -> f "string" "base64url" ""
+        | Some S.Uri -> f "string" "uri" ""
+        | Some S.Ipv4 -> f "string" "ipv4" ""
+        | Some S.Ipv6 -> f "string" "ipv6" "")
+    | Array a ->
+        let elt = node st ~hint a.items in
+        let counts =
+          int_arg "min_items" a.min_items ^ int_arg "max_items" a.max_items
+        in
+        {
+          ty = paren elt.ty ^ " array";
+          read = Printf.sprintf "(Wire.array%s %s)" counts elt.read;
+          write = Printf.sprintf "(Wire.w_array%s %s)" counts elt.write;
+        }
+    | Tuple [] ->
+        {
+          ty = "unit";
+          read =
+            "(fun ctx path j -> Option.map (fun _ -> ()) (Wire.tuple 0 ctx \
+             path j))";
+          write = "(fun _ _ () -> Wire.w_tuple [||])";
+        }
+    | Tuple ts ->
+        let items =
+          List.mapi
+            (fun i t -> node st ~hint:(Printf.sprintf "%s_%d" hint i) t)
+            ts
+        in
+        let n = List.length items in
+        let vars = List.init n (fun i -> Printf.sprintf "i%d" i) in
+        let tuple vs =
+          if n = 1 then List.hd vs else "(" ^ String.concat ", " vs ^ ")"
+        in
+        {
+          ty =
+            (if n = 1 then (List.hd items).ty
+             else String.concat " * " (List.map (fun p -> paren p.ty) items));
+          read =
+            Printf.sprintf
+              "(fun ctx path j -> match Wire.tuple %d ctx path j with | None \
+               -> None | Some items -> %smatch %s with | %s -> Some %s | _ -> \
+               None)"
+              n
+              (String.concat ""
+                 (List.mapi
+                    (fun i p ->
+                      Printf.sprintf
+                        "let i%d = %s ctx (Wire.Index %d :: path) items.(%d) \
+                         in "
+                        i p.read i i)
+                    items))
+              (tuple vars)
+              (tuple (List.map (fun v -> "Some " ^ v) vars))
+              (tuple vars);
+          write =
+            Printf.sprintf "(fun ctx path %s -> Wire.w_tuple [|%s|])"
+              (tuple vars)
+              (String.concat "; "
+                 (List.mapi
+                    (fun i p ->
+                      Printf.sprintf "%s ctx (Wire.Index %d :: path) i%d"
+                        p.write i i)
+                    items));
+        }
+    | Dict d ->
+        let key = node st ~hint:(hint ^ "_key") d.keys in
+        let value = node st ~hint:(hint ^ "_value") d.values in
+        let counts =
+          int_arg "min_properties" d.min_properties
+          ^ int_arg "max_properties" d.max_properties
+        in
+        {
+          ty = Printf.sprintf "(%s * %s) array" key.ty value.ty;
+          read = Printf.sprintf "(Wire.dict%s %s %s)" counts key.read value.read;
+          write =
+            Printf.sprintf "(Wire.w_dict%s %s %s)" counts key.write value.write;
+        }
+    | Object o ->
+        record st ~hint ~doc:(if String.equal doc "" then o.about else doc) o
+    | Ref n ->
+        let n = lower_name n in
+        { ty = n; read = "read_" ^ n; write = "write_" ^ n }
+    | Nullable t ->
+        let inner = node st ~hint t in
+        {
+          ty = paren inner.ty ^ " option";
+          read = "(Wire.nullable " ^ inner.read ^ ")";
+          write = "(Wire.w_nullable " ^ inner.write ^ ")";
+        }
+    | Union ts ->
+        let taken = ref [] in
+        let arms =
+          List.map
+            (fun t ->
+              let sort = sort_of (undescribed t) in
+              let ctor = fresh taken (sort_ctor sort) in
+              ( sort,
+                ctor,
+                node st ~hint:(hint ^ "_" ^ String.lowercase_ascii ctor) t ))
+            ts
+        in
+        let tname =
+          declare st ~hint ~doc
+            (String.concat ""
+               (List.map
+                  (fun (_, c, p) -> Printf.sprintf " | %s of %s" c (paren p.ty))
+                  arms))
+        in
+        let is_any = function `Any -> true | _ -> false in
+        let known = List.filter (fun (s, _, _) -> not (is_any s)) arms in
+        let arm (s, c, p) =
+          Printf.sprintf
+            " | %s -> Option.map (fun x -> (%s x : %s)) (%s ctx path j)"
+            (sort_pattern s) c tname p.read
+        in
+        let last =
+          match List.find_opt (fun (s, _, _) -> is_any s) arms with
+          | Some a -> arm a
+          | None ->
+              Printf.sprintf " | _ -> Wire.mismatch ctx path %s j"
+                (lit (either (List.map (fun (s, _, _) -> sort_words s) known)))
+        in
+        {
+          ty = tname;
+          read =
+            Printf.sprintf
+              "(fun ctx path j -> match Js.Json.classify j with%s%s)"
+              (String.concat "" (List.map arm known))
+              last;
+          write =
+            Printf.sprintf "(fun ctx path (v : %s) -> match v with%s)" tname
+              (String.concat ""
+                 (List.map
+                    (fun (_, c, p) ->
+                      Printf.sprintf " | %s x -> %s ctx path x" c p.write)
+                    arms));
+        }
+    | Tagged { tag; absent; cases } ->
+        let taken = ref [] in
+        let cases =
+          List.map
+            (fun (value, o) ->
+              let word =
+                match value with Value.String s -> s | v -> Value.to_string v
+              in
+              let ctor = fresh taken (upper_name word) in
+              let text = Value.to_string value in
+              let json =
+                match value with
+                | Value.String s -> "Js.Json.string " ^ lit s
+                | Value.Number f -> "Js.Json.number " ^ float_lit f
+                | Value.Bool b -> Printf.sprintf "Js.Json.boolean %b" b
+                | Value.Null -> "Js.Json.null"
+                | Value.Array _ | Value.Object _ ->
+                    "Js.Json.parseExn " ^ lit text
+              in
+              ( ctor,
+                text,
+                json,
+                members st ~hint:(hint ^ "_" ^ String.lowercase_ascii ctor) o ))
+            cases
+        in
+        let tname =
+          declare st ~hint ~doc
+            (String.concat ""
+               (List.map
+                  (fun (ctor, _, _, m) ->
+                    if m.empty then " | " ^ ctor
+                    else Printf.sprintf " | %s of {%s }" ctor m.fields)
+                  cases))
+        in
+        let absent_arg =
+          match absent with
+          | None -> "None"
+          | Some v -> "(Some " ^ lit (Value.to_string v) ^ ")"
+        in
+        {
+          ty = tname;
+          read =
+            Printf.sprintf
+              "(fun ctx path j -> match Wire.object_ ctx path j with | None -> \
+               None | Some o -> (match Wire.tag ctx path o %s ~absent:%s with \
+               | None -> None | Some t -> %sWire.unknown_tag ctx path %s \
+               [%s]))"
+              (lit tag) absent_arg
+              (String.concat ""
+                 (List.map
+                    (fun (ctor, text, _, m) ->
+                      Printf.sprintf "if String.equal t %s then (%s) else "
+                        (lit text)
+                        (m.build ~tag:(Some tag) (fun built ->
+                             Printf.sprintf "(%s : %s)"
+                               (if m.empty then ctor else ctor ^ " " ^ built)
+                               tname)))
+                    cases))
+              (lit tag)
+              (String.concat "; "
+                 (List.map (fun (_, text, _, _) -> lit text) cases));
+          write =
+            Printf.sprintf "(fun ctx path (v : %s) -> match v with%s)" tname
+              (String.concat ""
+                 (List.map
+                    (fun (ctor, _, json, m) ->
+                      let tag_member =
+                        Printf.sprintf "Some (%s, Some (%s))" (lit tag) json
+                      in
+                      if m.empty then
+                        Printf.sprintf " | %s -> Wire.w_object [|%s|]" ctor
+                          tag_member
+                      else
+                        Printf.sprintf " | %s r -> Wire.w_object [|%s; %s|]"
+                          ctor tag_member (m.written "r"))
+                    cases));
+        }
+    | Described d ->
+        node st ~hint ~doc:(if String.equal doc "" then d.doc else doc) d.schema
+
+  and members st ~hint (o : obj) : members =
+    let taken = ref [] in
+    let members =
+      List.map
+        (fun (p : prop) ->
+          let fname = fresh taken (lower_name p.name) in
+          (* A member that may be left out and may be null reads both as
+             nothing, as [opt_mem] does: one option. *)
+          let nullable_optional, schema =
+            match (p.required, undescribed p.schema) with
+            | false, Nullable inner -> (true, inner)
+            | _, _ -> (false, p.schema)
+          in
+          let printed = node st ~hint:(hint ^ "_" ^ fname) schema in
+          let doc =
+            match (p.deprecated, p.doc) with
+            | false, doc -> doc
+            | true, "" -> "Deprecated."
+            | true, doc -> "Deprecated. " ^ doc
+          in
+          (p, fname, printed, nullable_optional, doc))
+        o.props
+    in
+    let refused =
+      match o.additional with Refused -> true | Allowed | Each _ -> false
+    in
+    let fields =
+      String.concat ""
+        (List.map
+           (fun ((p : prop), fname, printed, _, doc) ->
+             Printf.sprintf " %s : %s;%s" fname
+               (if p.required then printed.ty else paren printed.ty ^ " option")
+               (if String.equal doc "" then "" else " " ^ comment doc))
+           members)
+    in
+    let build ~tag make =
+      let reads =
+        String.concat ""
+          (List.map
+             (fun ((p : prop), fname, printed, nullable_optional, _) ->
+               Printf.sprintf "let m_%s = Wire.%s %s ctx path o %s in " fname
+                 (if p.required then "required"
+                  else if nullable_optional then "optional_or_null"
+                  else "optional")
+                 printed.read (lit p.name))
+             members)
+      in
+      let check =
+        if not refused then ""
+        else
+          let names =
+            List.map (fun ((p : prop), _, _, _, _) -> lit p.name) members
+          in
+          Printf.sprintf "Wire.unknown ctx path o [|%s|]; "
+            (String.concat "; "
+               (match tag with Some t -> lit t :: names | None -> names))
+      in
+      match members with
+      | [] -> check ^ "Some " ^ make "()"
+      | _ ->
+          Printf.sprintf "%s%smatch (%s) with | (%s) -> Some (%s) | _ -> None"
+            reads check
+            (String.concat ", "
+               (List.map (fun (_, f, _, _, _) -> "m_" ^ f) members))
+            (String.concat ", "
+               (List.map (fun (_, f, _, _, _) -> "Some m_" ^ f) members))
+            (make
+               (Printf.sprintf "{%s }"
+                  (String.concat ""
+                     (List.map
+                        (fun (_, f, _, _, _) ->
+                          Printf.sprintf " %s = m_%s;" f f)
+                        members))))
+    in
+    let written v =
+      String.concat "; "
+        (List.map
+           (fun ((p : prop), fname, printed, _, _) ->
+             if p.required then
+               Printf.sprintf "Some (%s, %s ctx (Wire.Member %s :: path) %s.%s)"
+                 (lit p.name) printed.write (lit p.name) v fname
+             else
+               Printf.sprintf
+                 "(match %s.%s with None -> None | Some x -> Some (%s, %s ctx \
+                  (Wire.Member %s :: path) x))"
+                 v fname (lit p.name) printed.write (lit p.name))
+           members)
+    in
+    { fields; build; written; empty = List.is_empty members }
+
+  (* An object as a record; one with no members as [unit]. *)
+  and record st ~hint ~doc (o : obj) : printed =
+    let m = members st ~hint o in
+    if m.empty then
+      let refused =
+        match o.additional with Refused -> true | Allowed | Each _ -> false
+      in
+      {
+        ty = "unit";
+        read =
+          Printf.sprintf
+            "(fun ctx path j -> match Wire.object_ ctx path j with | None -> \
+             None | Some %s -> %sSome ())"
+            (if refused then "o" else "_")
+            (if refused then "Wire.unknown ctx path o [||]; " else "");
+        write = "(fun _ _ () -> Wire.w_object [||])";
+      }
+    else
+      let tname = declare st ~hint ~doc (Printf.sprintf " {%s }" m.fields) in
+      {
+        ty = tname;
+        read =
+          Printf.sprintf
+            "(fun ctx path j -> match Wire.object_ ctx path j with | None -> \
+             None | Some o -> %s)"
+            (m.build ~tag:None (fun built ->
+                 Printf.sprintf "(%s : %s)" built tname));
+        write =
+          Printf.sprintf "(fun ctx path (v : %s) -> Wire.w_object [|%s|])" tname
+            (m.written "v");
+      }
+
+  let module_
+      ?(header =
+        "Printed by wiretype from the server's descriptions. Do not edit.") cs =
+    let st = { decls = []; types = ref [] } in
+    let names = List.map (fun (n, _) -> lower_name n) cs in
+    (* Every component's name is taken first, so nothing printed inside one
+       takes another's; a component then declares its own under its name,
+       or is an alias of what it printed as. *)
+    st.types := names;
+    let printed =
+      List.map2
+        (fun (_, s) n ->
+          st.types := List.filter (fun t -> not (String.equal t n)) !(st.types);
+          let p = node st ~hint:n s in
+          if not (List.mem n !(st.types)) then st.types := n :: !(st.types);
+          (n, p))
+        cs names
+    in
+    let aliases =
+      List.filter_map
+        (fun (n, p) ->
+          if List.exists (fun d -> String.equal d.tname n) st.decls then None
+          else Some { tname = n; tdoc = ""; body = " " ^ p.ty })
+        printed
+    in
+    let b = Buffer.create 65536 in
+    Buffer.add_string b ("(* " ^ header ^ " *)\n\n");
+    Buffer.add_string b Melange_prelude.text;
+    Buffer.add_string b
+      "\n\
+       (* ---- The types ---- *)\n\n\
+       (* One recursive group, since components hold each other. Two may share a\n\
+      \   field's or a word's name, and a value is told apart by its type. *)\n\
+       [@@@warning \"-30\"]\n\n";
+    List.iteri
+      (fun i d ->
+        if not (String.equal d.tdoc "") then
+          Buffer.add_string b (comment d.tdoc ^ "\n");
+        Buffer.add_string b
+          (Printf.sprintf "%s %s =%s\n\n"
+             (if i = 0 then "type" else "and")
+             d.tname d.body))
+      (List.rev st.decls @ aliases);
+    Buffer.add_string b "(* ---- Reading ---- *)\n\n";
+    List.iteri
+      (fun i (n, p) ->
+        Buffer.add_string b
+          (Printf.sprintf
+             "%s read_%s : %s Wire.reader = fun ctx path j -> %s ctx path j\n\n"
+             (if i = 0 then "let rec" else "and")
+             n n p.read))
+      printed;
+    Buffer.add_string b "(* ---- Writing ---- *)\n\n";
+    List.iteri
+      (fun i (n, p) ->
+        Buffer.add_string b
+          (Printf.sprintf
+             "%s write_%s : %s Wire.writer = fun ctx path v -> %s ctx path v\n\n"
+             (if i = 0 then "let rec" else "and")
+             n n p.write))
+      printed;
+    Buffer.add_string b "(* ---- Each component ---- *)\n\n";
+    List.iter
+      (fun (n, _) ->
+        Buffer.add_string b
+          (Printf.sprintf
+             "let decode_%s s = Wire.decode read_%s s\n\
+              let %s_of_json j = Wire.of_json read_%s j\n\
+              let encode_%s v = Wire.encode write_%s v\n\
+              let %s_to_json v = Wire.to_json write_%s v\n\n"
+             n n n n n n n n))
+      printed;
+    Buffer.contents b
+end

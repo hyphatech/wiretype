@@ -18,11 +18,9 @@ jobs:
       - uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: ${{ matrix.ocaml }}
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
+      - uses: oven-sh/setup-bun@v2
       - run: opam install . --deps-only --with-test --with-dev-setup -y
-      - run: npm ci
+      - run: bun install --frozen-lockfile
         working-directory: test/zod
       # Use setup-ocaml's switch instead of the Makefile's.
       - run: make lint OPAM="opam exec --"
@@ -39,11 +37,9 @@ jobs:
       - uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: "5.5"
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
+      - uses: oven-sh/setup-bun@v2
       - run: opam install . --deps-only --with-test -y
-      - run: npm ci
+      - run: bun install --frozen-lockfile
         working-directory: test/zod
       - run: opam list --installed --columns=name,version
       - run: make build OPAM="opam exec --"

@@ -1,0 +1,7 @@
+; The descriptions the shared rows are read by, on the server and in the
+; browser. The rows themselves are the JSON beside them.
+
+(library
+ (name fixtures)
+ (modules shapes)
+ (libraries wiretype ptime mtime uuidm))

@@ -1,6 +1,8 @@
 (lang dune 3.18)
 (name wiretype)
 
+(using melange 0.1)
+
 (implicit_transitive_deps false)
 
 (generate_opam_files true)
@@ -19,9 +21,9 @@
 (package
  (name wiretype)
  (synopsis
-  "JSON contracts for OCaml: one description validates, writes, and prints JSON Schema and Zod")
+  "JSON contracts for OCaml: one description validates, writes, and prints JSON Schema, Zod and OCaml for Melange")
  (description
-  "One value describes a JSON shape: it reads a document in one pass with every problem found, writes a value, checks the bounds it states, and prints itself as JSON Schema 2020-12 and as Zod, so a server, a browser and a model read one contract. Depends on Ptime, Mtime and Uuidm alone.")
+  "One value describes a JSON shape: it reads a document in one pass with every problem found, writes a value, checks the bounds it states, and prints itself as JSON Schema 2020-12, as Zod and as OCaml for Melange, so a server, a browser and a model read one contract. Depends on Ptime, Mtime and Uuidm alone.")
  (depends
   (ocaml
    (>= 5.5))
@@ -35,6 +37,10 @@
    (and
     :with-test
     (>= 1.9.1)))
+  (melange
+   (and
+    :with-test
+    (>= 7.0.1-55)))
   (odoc
    (and
     :with-dev-setup

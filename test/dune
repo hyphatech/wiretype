@@ -31,7 +31,9 @@
   (source_tree json-test-suite)
   ; Unicode's IDNA conformance file, and the data a stricter refusal is read in.
   (source_tree idna-test)
-  (source_tree ../src/unicode)))
+  (source_tree ../src/unicode)
+  ; The kinds' rows, the one file this suite and the Zod rows read.
+  (glob_files fixtures/*.json)))
 
 ; The deriver, run in-process over snippets it must refuse.
 
@@ -40,3 +42,21 @@
  (package ppx_wiretype)
  (modules test_ppx_wiretype)
  (libraries ppx_wiretype ppxlib alcotest))
+
+; The shapes' rows on the server, the same file the Melange rows read.
+
+(test
+ (name test_shapes)
+ (package wiretype)
+ (modules test_shapes)
+ (libraries wiretype fixtures alcotest)
+ (deps
+  (glob_files fixtures/*.json)))
+
+; The printed Melange module for the fixtures' shapes, which melange/
+; compares with its committed copy.
+
+(executable
+ (name print_shapes)
+ (modules print_shapes)
+ (libraries wiretype fixtures))

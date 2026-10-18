@@ -1,0 +1,220 @@
+[
+  {
+    "shape": "OrderLine",
+    "text": "{\"sku\":\"A1\",\"quantity\":2,\"price\":9.5,\"tags\":[\"a\"],\"placed\":\"2026-09-30T12:00:00Z\",\"id\":\"01890A5D-AC96-7A3B-9E5A-5F1C2A7B8C9D\",\"day\":\"2026-09-30\",\"ttl\":\"PT1H30M\"}",
+    "written": "{\"sku\":\"A1\",\"quantity\":2,\"price\":9.5,\"tags\":[\"a\"],\"placed\":\"2026-09-30T12:00:00.000Z\",\"id\":\"01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d\",\"day\":\"2026-09-30\",\"ttl\":\"PT1H30M\"}"
+  },
+  {
+    "shape": "OrderLine",
+    "text": "{\"sku\":\"A1\",\"quantity\":1,\"note\":null,\"price\":0,\"tags\":[],\"placed\":\"2026-09-30T12:00:00.123456+05:30\",\"id\":\"00000000-0000-0000-0000-000000000000\",\"day\":\"2024-02-29\",\"ttl\":\"P1DT0.5S\"}",
+    "written": "{\"sku\":\"A1\",\"quantity\":1,\"price\":0,\"tags\":[],\"placed\":\"2026-09-30T06:30:00.123Z\",\"id\":\"00000000-0000-0000-0000-000000000000\",\"day\":\"2024-02-29\",\"ttl\":\"P1DT0.5S\"}"
+  },
+  {
+    "shape": "OrderLine",
+    "text": "{\"sku\":\"A1\",\"quantity\":1,\"note\":\"ok\",\"price\":1,\"tags\":[\"a\",\"b\"],\"placed\":\"2026-09-30T12:00:00Z\",\"id\":\"01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d\",\"day\":\"2026-09-30\",\"ttl\":\"PT0S\"}",
+    "written": "{\"sku\":\"A1\",\"quantity\":1,\"note\":\"ok\",\"price\":1,\"tags\":[\"a\",\"b\"],\"placed\":\"2026-09-30T12:00:00.000Z\",\"id\":\"01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d\",\"day\":\"2026-09-30\",\"ttl\":\"PT0S\"}"
+  },
+  {
+    "shape": "OrderLine",
+    "text": "{\"sku\":1,\"quantity\":120,\"note\":\"hello\",\"price\":-1,\"tags\":[\"a\",\"b\",\"c\"],\"placed\":\"2026-09-30 12:00:00Z\",\"id\":\"nope\",\"day\":\"2026-02-30\",\"ttl\":\"P1Y\"}",
+    "problems": [
+      { "at": "sku", "code": "unexpected_type" },
+      { "at": "quantity", "code": "too_large" },
+      { "at": "note", "code": "too_long" },
+      { "at": "price", "code": "too_small" },
+      { "at": "tags", "code": "too_many" },
+      { "at": "placed", "code": "malformed" },
+      { "at": "id", "code": "malformed" },
+      { "at": "day", "code": "malformed" },
+      { "at": "ttl", "code": "malformed" }
+    ]
+  },
+  {
+    "shape": "OrderLine",
+    "text": "{\"sku\":\"A1\",\"quantity\":2.5,\"note\":\"ééééé\",\"price\":1,\"tags\":[\"a\",1],\"placed\":\"9999-12-31T23:59:59-00:01\",\"id\":\"01890a5d-ac96-9a3b-9e5a-5f1c2a7b8c9d\",\"day\":\"2026-9-30\",\"ttl\":\"PT\"}",
+    "problems": [
+      { "at": "quantity", "code": "unexpected_type" },
+      { "at": "note", "code": "too_long" },
+      { "at": "tags[1]", "code": "unexpected_type" },
+      { "at": "placed", "code": "malformed" },
+      { "at": "id", "code": "malformed" },
+      { "at": "day", "code": "malformed" },
+      { "at": "ttl", "code": "malformed" }
+    ]
+  },
+  {
+    "shape": "OrderLine",
+    "text": "{}",
+    "problems": [
+      { "at": "sku", "code": "required" },
+      { "at": "quantity", "code": "required" },
+      { "at": "price", "code": "required" },
+      { "at": "tags", "code": "required" },
+      { "at": "placed", "code": "required" },
+      { "at": "id", "code": "required" },
+      { "at": "day", "code": "required" },
+      { "at": "ttl", "code": "required" }
+    ]
+  },
+  {
+    "shape": "OrderLine",
+    "text": "[]",
+    "problems": [{ "at": "", "code": "unexpected_type" }]
+  },
+  {
+    "shape": "OrderLine",
+    "text": "{\"sku\":",
+    "problems": [{ "at": "sku", "code": "syntax" }],
+    "melange": [{ "at": "", "code": "syntax" }]
+  },
+  {
+    "shape": "Settings",
+    "text": "{\"level\":\"in-progress\",\"ratio\":0.5,\"step\":15,\"amount\":19.99,\"big\":9007199254740993}",
+    "written": "{\"level\":\"in-progress\",\"ratio\":0.5,\"step\":15,\"amount\":19.99,\"count\":0,\"big\":9007199254740993}",
+    "melange": [{ "at": "big", "code": "too_large" }]
+  },
+  {
+    "shape": "Settings",
+    "text": "{\"level\":\"debug\",\"ratio\":0.25,\"step\":100,\"amount\":0.03,\"count\":7,\"big\":-5}",
+    "melange_written": "{\"level\":\"debug\",\"ratio\":0.25,\"step\":100,\"amount\":0.03,\"count\":7,\"big\":-5}"
+  },
+  {
+    "shape": "Settings",
+    "text": "{\"level\":\"debug\",\"ratio\":0.5,\"step\":5,\"amount\":1,\"big\":1,\"extra\":true}",
+    "problems": [{ "at": "extra", "code": "unknown_member" }]
+  },
+  {
+    "shape": "Settings",
+    "text": "{\"level\":\"warn\",\"ratio\":1,\"step\":7,\"amount\":0.015,\"big\":1.5}",
+    "problems": [
+      { "at": "level", "code": "unknown_word" },
+      { "at": "ratio", "code": "too_large" },
+      { "at": "step", "code": "not_a_multiple" },
+      { "at": "amount", "code": "not_a_multiple" },
+      { "at": "big", "code": "unexpected_type" }
+    ]
+  },
+  {
+    "shape": "Settings",
+    "text": "{\"level\":2,\"ratio\":0,\"step\":-5,\"amount\":1,\"count\":\"x\",\"big\":1}",
+    "problems": [
+      { "at": "level", "code": "unexpected_type" },
+      { "at": "ratio", "code": "too_small" },
+      { "at": "step", "code": "too_small" },
+      { "at": "count", "code": "unexpected_type" }
+    ]
+  },
+  { "shape": "Shape", "text": "{\"kind\":\"circle\",\"radius\":2}" },
+  { "shape": "Shape", "text": "{\"kind\":\"square\",\"side\":3.5}" },
+  {
+    "shape": "Shape",
+    "text": "{}",
+    "melange_written": "{\"kind\":\"dot\"}"
+  },
+  {
+    "shape": "Shape",
+    "text": "{\"kind\":\"dot\"}",
+    "written": "{}",
+    "melange_written": "{\"kind\":\"dot\"}"
+  },
+  {
+    "shape": "Shape",
+    "text": "{\"kind\":\"hexagon\"}",
+    "problems": [{ "at": "kind", "code": "unknown_word" }]
+  },
+  {
+    "shape": "Shape",
+    "text": "{\"kind\":\"circle\"}",
+    "problems": [{ "at": "radius", "code": "required" }]
+  },
+  {
+    "shape": "Tree",
+    "text": "{\"value\":1,\"children\":[{\"value\":2,\"children\":[]}]}"
+  },
+  {
+    "shape": "Tree",
+    "text": "{\"value\":1,\"children\":[{\"value\":\"x\",\"children\":[]}]}",
+    "problems": [{ "at": "children[0].value", "code": "unexpected_type" }]
+  },
+  {
+    "shape": "Tree",
+    "text": "{\"value\":1,\"value\":2,\"children\":[]}",
+    "problems": [{ "at": "value", "code": "repeated_member" }],
+    "melange": [],
+    "melange_written": "{\"value\":2,\"children\":[]}"
+  },
+  {
+    "shape": "Box",
+    "text": "{\"type\":\"a\",\"first-name\":\"b\",\"at\":{\"x\":1,\"y\":2}}"
+  },
+  {
+    "shape": "Box",
+    "text": "{\"type\":\"a\",\"first-name\":\"b\",\"at\":{\"x\":1}}",
+    "problems": [{ "at": "at.y", "code": "required" }]
+  },
+  { "shape": "Either", "text": "3" },
+  { "shape": "Either", "text": "\"w\"" },
+  {
+    "shape": "Either",
+    "text": "true",
+    "problems": [{ "at": "", "code": "unexpected_type" }]
+  },
+  {
+    "shape": "Account",
+    "text": "{\"name\":\"n\",\"password\":\"p\"}",
+    "written": "{\"id\":\"00000000-0000-0000-0000-000000000000\",\"name\":\"n\"}",
+    "melange_written": "{\"name\":\"n\",\"password\":\"p\"}"
+  },
+  {
+    "shape": "Account",
+    "text": "{\"id\":\"01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d\",\"name\":\"n\",\"password\":\"p\"}",
+    "written": "{\"id\":\"00000000-0000-0000-0000-000000000000\",\"name\":\"n\"}",
+    "melange_written": "{\"name\":\"n\",\"password\":\"p\"}"
+  },
+  {
+    "shape": "Account",
+    "text": "{\"name\":\"n\"}",
+    "problems": [{ "at": "password", "code": "required" }]
+  },
+  { "shape": "Scores", "text": "{\"debug\":1,\"info\":2}" },
+  {
+    "shape": "Scores",
+    "text": "{\"debug\":1,\"info\":2,\"in-progress\":3}",
+    "problems": [{ "at": "", "code": "too_many" }]
+  },
+  {
+    "shape": "Scores",
+    "text": "{\"warn\":1}",
+    "problems": [{ "at": "warn[name]", "code": "unknown_word" }]
+  },
+  { "shape": "Pair", "text": "[\"a\",1,true]" },
+  {
+    "shape": "Pair",
+    "text": "[\"a\",1]",
+    "problems": [{ "at": "", "code": "too_few" }]
+  },
+  {
+    "shape": "Pair",
+    "text": "[\"a\",\"b\",true]",
+    "problems": [{ "at": "[1]", "code": "unexpected_type" }]
+  },
+  { "shape": "Maybe", "text": "null" },
+  { "shape": "Maybe", "text": "3" },
+  {
+    "shape": "Maybe",
+    "text": "\"x\"",
+    "problems": [{ "at": "", "code": "unexpected_type" }]
+  },
+  { "shape": "Anything", "text": "{\"a\":[1,2,{\"b\":null}]}" },
+  { "shape": "Words", "text": "[\"ab\",\"cd\"]" },
+  {
+    "shape": "Words",
+    "text": "[]",
+    "problems": [{ "at": "", "code": "too_few" }]
+  },
+  {
+    "shape": "Words",
+    "text": "[\"a\",\"😀😀\"]",
+    "problems": [{ "at": "[0]", "code": "too_short" }]
+  }
+]

@@ -1,5 +1,22 @@
 # Changes
 
+## Unreleased
+
+- `Schema.Melange` prints the components as one OCaml module for Melange,
+  from the same walk as JSON Schema and Zod: a type per component and the
+  functions that read and write it, over `Js.Json`, `Js.Date` and
+  `Js.Dict` alone, each listing every problem at its place with the
+  server's codes and sentences. A number is a `float`; an integer an `int`
+  where its bounds lie within 32 bits and otherwise a whole `float`,
+  refused past 2^53 as `z.int()` refuses it; an enum and a union by tag are
+  variants; a list an `array`; an instant, a duration and a UUID the
+  module's own abstract types. The browser is the looser in four places, by
+  design -- a whole number past 2^53, a member given twice, nesting, and a
+  URI, held to the browser's `URL` -- and the kinds' rows and a file of
+  shared rows hold it to the server's verdict everywhere else. Melange is a
+  test dependency of wiretype alone: a native user installs nothing new.
+- The Zod rows run on Bun, where they ran on Node.
+
 ## 0.5.0 (2026-10-14)
 
 - `Value.write`'s documentation says it checks nothing `encode` checks --

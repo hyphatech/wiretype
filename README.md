@@ -10,9 +10,9 @@ JSON contracts for OCaml.
 
 Describe a JSON shape once, or derive it from your type. That one value
 reads a document and reports every problem in it, writes a value, checks
-the bounds it states, and prints itself as JSON Schema 2020-12 and as Zod,
-so a server, a browser and a model's tool call read the same contract.
-Depends on Ptime, Mtime and Uuidm alone.
+the bounds it states, and prints itself as JSON Schema 2020-12, as Zod and
+as OCaml for Melange, so a server, a browser and a model's tool call read
+the same contract. Depends on Ptime, Mtime and Uuidm alone.
 
 ## Install
 
@@ -144,16 +144,16 @@ refuses.
 ## Schemas
 
 `Wiretype.Schema` walks a description once and prints it as JSON Schema
-2020-12 and as zod/mini, so the two cannot disagree. A named object is a
-component; a request's schema and an answer's differ where a member is
-read-only, write-only, or an `opt_mem` a request may give as `null`, and
-the request's is then
-`<Name>Input`, whatever else is walked. An object that refuses members it
-does not describe says so in both. Bounds -- ranges, `multiple_of`,
-lengths, counts -- are in both. So is a doc, wherever it is given -- an
-object, a member, an enum, a kind, a map, a union: JSON Schema's
-`description`, and Zod's comment where a comment can stand. The Zod it prints
-is checked in TypeScript, against Zod itself, on every test run.
+2020-12, as zod/mini and as OCaml for Melange, so the three cannot
+disagree. A named object is a component; a request's schema and an
+answer's differ where a member is read-only, write-only, or an `opt_mem` a
+request may give as `null`, and the request's is then `<Name>Input`,
+whatever else is walked. An object that refuses members it does not
+describe says so in each. Bounds -- ranges, `multiple_of`, lengths, counts
+-- are in each. So is a doc, wherever it is given -- an object, a member,
+an enum, a kind, a map, a union: JSON Schema's `description`, and a
+comment where a comment can stand. The Zod it prints is checked in
+TypeScript, against Zod itself, on every test run.
 
 What a walk could not make right is in `Schema.errors` -- two different
 descriptions under one kind, a map keyed by what is no text -- and a
@@ -161,6 +161,36 @@ schema printed in spite of one says something the description does not,
 so check it before printing. What a schema can say only loosely -- any
 JSON, an integer's bound past 2^53 -- is printed loosely and listed in
 `Schema.loose`.
+
+### OCaml for Melange
+
+`Schema.Melange.module_` prints the components as one OCaml module for a
+browser, over Melange's `Js.Json`, `Js.Date` and `Js.Dict` alone: a type
+per component and the functions that read and write it, each listing
+every problem at its place with the server's codes and sentences, so a
+form finds what is wrong before it sends. The module needs no library, and
+a native user of wiretype installs nothing new.
+
+```ocaml
+let melange = J.Schema.Melange.module_ (J.Schema.components ctx)
+```
+
+```ocaml
+type line = { sku : string; quantity : int; note : string option; }
+
+val decode_line : string -> (line, Problem.t list) result
+val encode_line : line -> (string, Problem.t list) result
+```
+
+A number is a `float`; an integer an `int` where its bounds lie within 32
+bits and otherwise a whole `float`, refused past 2^53 as `z.int()` refuses
+it; an enum and a union by tag are variants; a list an `array`; an instant,
+a duration and a UUID the module's own abstract types. The browser is the
+looser in four places, by design -- a whole number past 2^53, a member
+given twice, nesting, and a URI, held to the browser's `URL` -- and reads
+and writes as the server does everywhere else: one file of rows is read
+through `decode` and through the printed module on every test run, and
+held to the same problems.
 
 ## The deriver
 

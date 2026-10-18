@@ -7,7 +7,29 @@
  (public_name wiretype)
  (libraries ptime mtime uuidm)
  (modules_without_implementation shape)
- (private_modules grammar bounds decode encode itself powers idna_data))
+ (private_modules
+  grammar
+  bounds
+  decode
+  encode
+  itself
+  powers
+  idna_data
+  melange_prelude))
+
+; What every printed Melange module opens with, kept as the OCaml it is in
+; melange/ and carried here as text.
+
+(rule
+ (target melange_prelude.ml)
+ (deps melange/prelude.ml)
+ (action
+  (with-stdout-to
+   %{target}
+   (progn
+    (echo "let text = {prelude|")
+    (cat melange/prelude.ml)
+    (echo "|prelude}\n")))))
 
 ; The Unicode properties an internationalised host is checked by, from
 ; Unicode 15.0.0's own files in unicode/.

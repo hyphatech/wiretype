@@ -1,21 +1,24 @@
 # AGENTS.md
 
 The wiretype library describes a JSON shape once: it reads a document with
-every problem found, writes a value, and prints itself as JSON Schema and Zod.
-`ppx_wiretype` derives a description from a type. This file is for anyone
-changing it, human or agent. Users start at [README.md](README.md).
+every problem found, writes a value, and prints itself as JSON Schema, as Zod
+and as OCaml for Melange. `ppx_wiretype` derives a description from a type.
+This file is for anyone changing it, human or agent. Users start at
+[README.md](README.md).
 
 ## Commands
 
 ```sh
 make setup   # once: the switch hypha-wiretype, all dependencies, and Zod
-make test    # every suite, and the kinds' rows through Zod
+make test    # every suite, the kinds' rows through Zod, and the shared rows
+             # through the printed Melange module
 make lint    # formatting, odoc, and the release build
 make fmt     # format in place
 ```
 
-The Zod rows need Node 24 or later; `make test-zod` runs them alone. CI
-runs `make lint` and `make test` on OCaml 5.5.
+The Zod rows and the Melange rows need Bun 1.3 or later; `make test-zod`
+runs the Zod rows alone. Melange is a test dependency, installed with the
+rest. CI runs `make lint` and `make test` on OCaml 5.5.
 
 ## Layout
 
@@ -28,10 +31,14 @@ src/                 wiretype: depends on Ptime, Mtime and Uuidm alone
   grammar            the kinds' grammars, hand-written
   itself             a description of itself, built by the first domain to
                      reach it while another waits
-  schema             one walk into a schema, printed as JSON Schema and Zod
+  schema             one walk into a schema, printed as JSON Schema, Zod and
+                     OCaml for Melange
   problem,           what a reader is told, what a writer is told, any JSON,
   unwritable,        and the two spellings
   value, text
+  melange/           what every printed Melange module opens with -- its
+                     Problem, the kinds' types, the readers and writers --
+                     kept as the OCaml it is and carried into schema as text
   gen/               build-time programs: the powers of ten the double printer
                      reads, and the IDNA tables from unicode/
   unicode/           Unicode 15.0.0's own data files
@@ -40,8 +47,16 @@ test/
   test_wiretype      reading, writing, the kinds and derived descriptions;
                      JSONTestSuite and IdnaTestV2 run whole
   test_schema        what JSON Schema and Zod each print for a description
+  test_shapes        the shapes' rows on the server
   test_ppx_wiretype  what the deriver refuses, and the words it refuses in
-  zod/               the kinds' rows as Zod reads them, on Node's own runner
+  print_shapes       the Melange module printed for the fixtures' shapes
+  zod/               the kinds' rows as Zod reads them, on Bun's runner
+  fixtures/          the kinds' rows and the shapes' rows, one file each, read
+                     by the OCaml suites, the Zod rows and the Melange rows;
+                     and the shapes the rows are read by
+  melange/           the shapes' rows in the browser's runtime: the printed
+                     module, committed and compared with what the printer
+                     writes, compiled by Melange beside the runner, run by Bun
   json-test-suite/   JSONTestSuite's cases, pinned
   idna-test/         Unicode's IDNA conformance file
 ```
@@ -75,10 +90,24 @@ break.
   `y_` files with a repeated member among them.
 - **A kind accepts no string a check it prints refuses.** Each ready-made
   kind reads a subset of what the check its schema prints reads -- Zod's,
-  today -- so a browser never turns away what the server would take. Why:
-  a form that will not send what the API would accept. Test: the same rows
-  in `test_wiretype`'s `kinds` and in `test/zod/kinds.test.ts`; a row
-  changed in one is changed in the other.
+  and the printed Melange module's -- so a browser never turns away what
+  the server would take. Why: a form that will not send what the API would
+  accept. Test: `test/fixtures/kinds.json`, one file of rows read by
+  `test_wiretype`'s `kinds`, by `test/zod/kinds.test.ts` and by
+  `test/melange/run.ml`, so a row is changed in one place and all three
+  read it; the printed module decides as the server does, but for a URI,
+  where a row says so.
+- **The printed Melange module decides as the server does.** Each row of
+  `test/fixtures/shapes.json` reads to the same problems, by place and
+  code, through `decode` and through the module printed for the same
+  descriptions, and what reads back is written back alike -- but where a
+  row says the browser is the looser, which is a whole number past 2^53,
+  a member given twice, nesting, a URI, and the place of a syntax problem.
+  Why: the browser holds the server's shapes as its own types, and a form
+  that disagrees with the API is the gap the printer exists to close. Test:
+  `test_shapes` and `test/melange/run.ml`, one file of rows; the printed
+  module under `test/melange` is compared with what the printer writes
+  today, and `dune promote` takes the new one.
 - **A bound is wiretype's to decide, and a printer says it exactly.**
   `multiple_of` on a number is a whole quotient to within a few rounding
   errors, so `19.99` is a multiple of `0.01`; on an integer it is exact.
@@ -89,10 +118,12 @@ break.
   refuses. Test: `multiple_rows` and `int_multiple_rows` in
   `test_wiretype`, and `multiples` and `intMultiples` in
   `test/zod/kinds.test.ts`; a row changed in one is changed in the other.
-- **JSON Schema and Zod are printed from one walk.** `Schema.walk` makes
-  one intermediate schema and both printers read it, and what cannot be
-  said exactly -- any JSON -- is reported as loose, never guessed at. Why:
-  two walks are two contracts that drift. Test: `test_schema`.
+- **JSON Schema, Zod and Melange are printed from one walk.** `Schema.walk`
+  makes one intermediate schema and the three printers read it, and what
+  cannot be said exactly -- any JSON -- is reported as loose, never guessed
+  at. Why: two walks are two contracts that drift. Test: `test_schema`, and
+  the shapes' rows, which hold the printed Melange module to the server's
+  verdict.
 - **The deriver writes only the public combinators.** A derived description
   is one a person could have written by hand, and the deriver refuses a
   shape it cannot describe where it is written, saying what to write
@@ -165,4 +196,5 @@ Its two packages are released together. `Shape.t` is closed: a
 constructor added to it is breaking, since walking it is the library's
 promise. A problem's sentence is wording; a problem's code, an attribute
 the deriver reads, the name it writes and what a schema prints for a
-description are behaviour: changing any is breaking.
+description, in any of its three targets, are behaviour: changing any is
+breaking.

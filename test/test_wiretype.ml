@@ -1301,203 +1301,32 @@ let malformed_descriptions () =
 (* ------------------------------------------------------------------ *)
 (* The ready-made kinds *)
 
-(* Each row is a string, whether the server takes it, and whether the
-   browser's zod check does; the same rows are written out in the web suite's
-   kinds.test.ts, which runs zod over them. The two answers are equal but
-   where the browser is the looser -- a URI, an instant past the years 0000
-   to 9999 once in UTC, a duration longer than an [Mtime.Span.t] holds -- so
-   the server never takes what the browser refuses. *)
-let instant_rows =
-  [
-    ("2026-09-30T12:00:00Z", true, true);
-    ("2026-09-30T12:00:00.5Z", true, true);
-    ("2026-09-30T12:00:00.123456789+05:30", true, true);
-    ("0000-01-01T00:00:00Z", true, true);
-    ("2024-02-29T23:59:59-23:59", true, true);
-    ("9999-12-31T23:59:59.999Z", true, true);
-    ("9999-12-31T23:59:59-00:01", false, true);
-    ("0000-01-01T00:00:00+00:01", false, true);
-    ("2026-09-30t12:00:00Z", false, false);
-    ("2026-09-30T12:00:00z", false, false);
-    ("2026-09-30T12:00Z", false, false);
-    ("2026-09-30T12:00:60Z", false, false);
-    ("2026-02-29T00:00:00Z", false, false);
-    ("2026-09-30T24:00:00Z", false, false);
-    ("2026-09-30T12:00:00", false, false);
-    ("2026-09-30T12:00:00+24:00", false, false);
-    ("2026-09-30 12:00:00Z", false, false);
-    ("2026-09-30T12:00:00.Z", false, false);
-  ]
-
-let date_rows =
-  [
-    ("2026-09-30", true, true);
-    ("2024-02-29", true, true);
-    ("2000-02-29", true, true);
-    ("0000-02-29", true, true);
-    ("1900-02-29", false, false);
-    ("2026-02-29", false, false);
-    ("2026-13-01", false, false);
-    ("2026-9-30", false, false);
-    ("20260930", false, false);
-  ]
-
-let duration_rows =
-  [
-    ("PT1H30M", true, true);
-    ("P1W", true, true);
-    ("P1D", true, true);
-    ("P1DT2H", true, true);
-    ("PT0.5S", true, true);
-    ("PT1,5S", true, true);
-    ("PT0S", true, true);
-    ("P1DT1H1M1.001S", true, true);
-    ("P1Y", false, false);
-    ("P1M", false, false);
-    ("P1Y2M", false, false);
-    ("PT", false, false);
-    ("P", false, false);
-    ("P1W1D", false, false);
-    ("1D", false, false);
-    ("PT1.5M", false, false);
-    ("P1DT", false, false);
-    ("P213503D", true, true);
-    ("PT18446744073.709S", true, true);
-    ("P213504D", false, true);
-    ("PT18446744073.710S", false, true);
-    ("-PT1S", false, false);
-    ("-P1D", false, false);
-    ("P99999999999D", false, true);
-    ("P1000000000000W", false, true);
-    ("PT3000000000000000H", false, true);
-    ("PT9999999999999999S", false, true);
-  ]
-
-let uuid_rows =
-  [
-    ("01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d", true, true);
-    ("01890A5D-AC96-7A3B-9E5A-5F1C2A7B8C9D", true, true);
-    ("f47ac10b-58cc-4372-a567-0e02b2c3d479", true, true);
-    ("00000000-0000-0000-0000-000000000000", true, true);
-    ("ffffffff-ffff-ffff-ffff-ffffffffffff", true, true);
-    ("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", false, false);
-    ("01890a5d-ac96-0a3b-9e5a-5f1c2a7b8c9d", false, false);
-    ("01890a5d-ac96-7a3b-ce5a-5f1c2a7b8c9d", false, false);
-    ("01890a5dac96-7a3b-9e5a-5f1c2a7b8c9d", false, false);
-    ("01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9", false, false);
-  ]
-
-let uuid7_rows =
-  [
-    ("01890a5d-ac96-7a3b-9e5a-5f1c2a7b8c9d", true, true);
-    ("f47ac10b-58cc-4372-a567-0e02b2c3d479", false, false);
-    ("00000000-0000-0000-0000-000000000000", false, false);
-  ]
-
-let base64_rows =
-  [
-    ("", true, true);
-    ("QQ==", true, true);
-    ("QUI=", true, true);
-    ("QUJD", true, true);
-    ("QR==", true, true);
-    ("QQ", false, false);
-    ("QQ=", false, false);
-    ("Q===", false, false);
-    ("QU JD", false, false);
-    ("QUJD=", false, false);
-    ("-_8=", false, false);
-  ]
-
-let base64url_rows =
-  [
-    ("", true, true);
-    ("QQ", true, true);
-    ("QUI", true, true);
-    ("QUJD", true, true);
-    ("-_8", true, true);
-    ("QQ==", false, false);
-    ("Q", false, false);
-    ("QU+D", false, false);
-  ]
-
-let uri_rows =
-  [
-    ("https://example.com/path?q=1#frag", true, true);
-    ("mailto:a@b.c", true, true);
-    ("urn:isbn:0451450523", true, true);
-    ("http://[::1]:8080/", true, true);
-    ("http://[::ffff:192.0.2.1]/", true, true);
-    ("ftp://user:pw@host/x", true, true);
-    ("https://example.com:65535", true, true);
-    ("https://192.0.2.1/", true, true);
-    ("foo:bar", true, true);
-    ("example.com", false, false);
-    ("https://exa mple.com", false, false);
-    ("http://", false, false);
-    ("https:", false, false);
-    ("https://example.com:65536", false, false);
-    ("http://[v1.fe]/", false, false);
-    ("https://999.1.1.1/", false, false);
-    (* The browser is the looser: the URL standard takes these, RFC 3986 or
-       our reading of a special scheme's host does not. *)
-    ("https://example.com/a b", false, true);
-    ("http:example.com", false, true);
-    ("https://xn--nxasmq6b.com/", true, true);
-    ("https://xn--mnchen-3ya.de/", true, true);
-    ("https://xn--ls8h.la/", true, true);
-    (* A browser's answer to these three is its runtime's IDNA to decide,
-       null in kinds.test.ts; the rule holds whichever it is. *)
-    ("https://xn--zz.com/", false, false);
-    ("https://xn--abc-.com/", false, false);
-    ("https://xn--xn--a--gua.pt/", false, false);
-    ("file:///etc/hosts", true, true);
-    ("file://host/x", true, true);
-    ("file://host:80/x", false, false);
-    ("file://u@host/x", false, false);
-    ("file://1.2.3.999/", false, false);
-    ("foo://", true, true);
-    ("foo://:80", false, false);
-    ("foo://u@", false, false);
-    ("foo://u@:1", false, false);
-    ("http://[1.2.3.4::]/", false, false);
-  ]
-
-let ipv4_rows =
-  [
-    ("192.0.2.1", true, true);
-    ("0.0.0.0", true, true);
-    ("255.255.255.255", true, true);
-    ("256.0.0.1", false, false);
-    ("01.2.3.4", false, false);
-    ("1.2.3", false, false);
-    ("1.2.3.4.5", false, false);
-    (" 1.2.3.4", false, false);
-  ]
-
-let ipv6_rows =
-  [
-    ("::", true, true);
-    ("::1", true, true);
-    ("2001:db8::1", true, true);
-    ("1:2:3:4:5:6:7:8", true, true);
-    ("1:2:3:4:5:6:7::", true, true);
-    ("::2:3:4:5:6:7:8", true, true);
-    ("FE80::1", true, true);
-    ("1:2:3:4:5:6:7:8:9", false, false);
-    (":::", false, false);
-    ("1::2::3", false, false);
-    ("::ffff:192.0.2.1", true, true);
-    ("::ffff:192.0.2.256", false, false);
-    ("fe80::1%eth0", false, false);
-    ("12345::", false, false);
-    ("1:2:3:4:5:6:7", false, false);
-    ("1.2.3.4::", false, false);
-    ("1.2.3.4::1", false, false);
-    ("1:1.2.3.4::", false, false);
-    ("1:2:3:4:5:6:1.2.3.4", true, true);
-    ("1:2:3:4:5:6:7:1.2.3.4", false, false);
-  ]
+(* The rows are fixtures/kinds.json, which test/zod/kinds.test.ts reads too:
+   each a string, whether the server takes it and whether the browser's Zod
+   check does -- [zod], left out where it is the server's answer, and null
+   where the browser's runtime decides it, as its IDNA does a bad Punycode
+   label. The two answers are equal but where the browser is the looser -- a
+   URI the URL standard takes and RFC 3986 does not, an instant past the
+   years 0000 to 9999 once in UTC, a duration longer than an [Mtime.Span.t]
+   holds -- so the server never takes what the browser refuses. This suite
+   checks the server's answer; the browser's is the Zod rows' to check. *)
+let kinds =
+  let row =
+    J.Object.map (fun text server zod ->
+        (text, server, Option.value zod ~default:(Some server)))
+    |> J.Object.mem "text" J.string
+    |> J.Object.mem "server" J.bool
+    |> J.Object.mem "zod" ~absent:None
+         (J.map ~parse:Option.some (J.nullable J.bool))
+    |> J.Object.finish
+  in
+  lazy
+    (let text =
+       In_channel.with_open_bin "fixtures/kinds.json" In_channel.input_all
+     in
+     match J.decode (J.dict ~key:J.string ~value:(J.list row) ()) text with
+     | Ok kinds -> kinds
+     | Error ps -> Alcotest.fail (P.list_to_string ps))
 
 (* A label is decoded in time that grows with the square of its length, so
    one longer than DNS allows, 63 octets, is refused before it is decoded.
@@ -1519,14 +1348,17 @@ let long_label () =
     true
     (long < 2.5 *. short)
 
-let kind_rows name shape rows () =
-  List.iter
-    (fun (text, server, _browser) ->
-      Alcotest.(check bool)
-        (Printf.sprintf "%s %S" name text)
-        server
-        (Result.is_ok (J.decode shape (V.to_string (V.String text)))))
-    rows
+let kind_rows name shape () =
+  match List.assoc_opt name (Lazy.force kinds) with
+  | None -> Alcotest.failf "fixtures/kinds.json has no %s" name
+  | Some rows ->
+      List.iter
+        (fun (text, server, _zod) ->
+          Alcotest.(check bool)
+            (Printf.sprintf "%s %S" name text)
+            server
+            (Result.is_ok (J.decode shape (V.to_string (V.String text)))))
+        rows
 
 let malformed () =
   Alcotest.(check (list problem))
@@ -3348,22 +3180,18 @@ let () =
         ] );
       ( "kinds",
         [
-          Alcotest.test_case "instant" `Quick
-            (kind_rows "instant" J.instant instant_rows);
-          Alcotest.test_case "date" `Quick (kind_rows "date" J.date date_rows);
-          Alcotest.test_case "duration" `Quick
-            (kind_rows "duration" J.duration duration_rows);
-          Alcotest.test_case "uuid" `Quick
-            (kind_rows "uuid" (J.uuid ()) uuid_rows);
+          Alcotest.test_case "instant" `Quick (kind_rows "instant" J.instant);
+          Alcotest.test_case "date" `Quick (kind_rows "date" J.date);
+          Alcotest.test_case "duration" `Quick (kind_rows "duration" J.duration);
+          Alcotest.test_case "uuid" `Quick (kind_rows "uuid" (J.uuid ()));
           Alcotest.test_case "uuid v7" `Quick
-            (kind_rows "uuid v7" (J.uuid ~version:V7 ()) uuid7_rows);
-          Alcotest.test_case "base64" `Quick
-            (kind_rows "base64" J.base64 base64_rows);
+            (kind_rows "uuid v7" (J.uuid ~version:V7 ()));
+          Alcotest.test_case "base64" `Quick (kind_rows "base64" J.base64);
           Alcotest.test_case "base64url" `Quick
-            (kind_rows "base64url" J.base64url base64url_rows);
-          Alcotest.test_case "uri" `Quick (kind_rows "uri" J.uri uri_rows);
-          Alcotest.test_case "ipv4" `Quick (kind_rows "ipv4" J.ipv4 ipv4_rows);
-          Alcotest.test_case "ipv6" `Quick (kind_rows "ipv6" J.ipv6 ipv6_rows);
+            (kind_rows "base64url" J.base64url);
+          Alcotest.test_case "uri" `Quick (kind_rows "uri" J.uri);
+          Alcotest.test_case "ipv4" `Quick (kind_rows "ipv4" J.ipv4);
+          Alcotest.test_case "ipv6" `Quick (kind_rows "ipv6" J.ipv6);
           Alcotest.test_case "an internationalised host, by IdnaTestV2" `Quick
             idna_rows;
           Alcotest.test_case "a label longer than DNS allows" `Quick long_label;
