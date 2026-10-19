@@ -1,10 +1,10 @@
 # AGENTS.md
 
-The wiretype library describes a JSON shape once: it reads a document with
-every problem found, writes a value, and prints itself as JSON Schema, as Zod
-and as OCaml for Melange. `ppx_wiretype` derives a description from a type.
-This file is for anyone changing it, human or agent. Users start at
-[README.md](README.md).
+wiretype is an OCaml library of Hypha Stack. It describes a JSON shape once:
+it reads a document with every problem found, writes a value, and prints
+itself as JSON Schema, as Zod and as OCaml for Melange. `ppx_wiretype`
+derives a description from a type. This file is for anyone changing it,
+human or agent. Users start at [README.md](README.md).
 
 ## Commands
 
@@ -164,33 +164,7 @@ break.
   opens to read the AST it matches. Symptom:
   `rg -n '\bopen |\b[A-Z]\w*\.[(\[{]' src ppx` finds any other.
 
-## House style
-
-The house style, the OCaml checklist and the OCaml tools are
-[OCAML.md](OCAML.md), the same in every Hypha OCaml repository and changed
-in all of them together, never in one. It is imported here, so it is read
-with this file:
-
-@OCAML.md
-
-## Git
-
-How work becomes a commit -- its format, where it happens, what is pushed
--- is [GIT.md](GIT.md), the same in every Hypha repository and changed in
-all of them together, never in one. It is imported here, so it is read
-with this file:
-
-@GIT.md
-
 ## Changes and releases
-
-How a change reaches the library's users -- its line in `CHANGES.md`, what
-is breaking, how a release is tagged and published -- is
-[LIBRARY.md](LIBRARY.md), the same in every Hypha library and changed in
-all of them together, never in one. It is imported here, so it is read
-with this file:
-
-@LIBRARY.md
 
 Its two packages are released together. `Shape.t` is closed: a
 constructor added to it is breaking, since walking it is the library's
