@@ -1,29 +1,42 @@
 module S = Shape
 
+(* JSON's spellings, before Text names what a schema says of a string. *)
+module Json_text = Text
+
 type dir = Decode | Encode
 
-type number = {
-  min : float option;
-  max : float option;
-  above : float option;
-  below : float option;
-  multiple_of : float option;
-}
+module Number = struct
+  type t = {
+    min : float option;
+    max : float option;
+    above : float option;
+    below : float option;
+    multiple_of : float option;
+  }
 
-type string_ = {
-  words : string list option;
-  min_length : int option;
-  max_length : int option;
-  format : S.format option;
-}
+  let any =
+    { min = None; max = None; above = None; below = None; multiple_of = None }
+end
+
+module Text = struct
+  type t = {
+    words : string list option;
+    min_length : int option;
+    max_length : int option;
+    format : S.format option;
+  }
+
+  let any =
+    { words = None; min_length = None; max_length = None; format = None }
+end
 
 type t =
   | Any
   | Null
   | Boolean
-  | Number of number
-  | Integer of number
-  | String of string_
+  | Number of Number.t
+  | Integer of Number.t
+  | String of Text.t
   | Array of { items : t; min_items : int option; max_items : int option }
   | Tuple of t list
   | Dict of {
@@ -48,17 +61,13 @@ and additional = Allowed | Refused | Each of t
 
 and prop = {
   name : string;
+  field : string option;  (** the OCaml field it is in, where one was given *)
   schema : t;
   required : bool;
   doc : string;
   deprecated : bool;
   examples : Value.t list;
 }
-
-let no_bounds =
-  { min = None; max = None; above = None; below = None; multiple_of = None }
-
-let text = { words = None; min_length = None; max_length = None; format = None }
 
 (* ------------------------------------------------------------------ *)
 (* The walk *)
@@ -111,7 +120,7 @@ let format_equal a b =
       _ ) ->
       false
 
-let number_equal (a : number) (b : number) =
+let number_equal (a : Number.t) (b : Number.t) =
   let f = Option.equal Float.equal in
   f a.min b.min && f a.max b.max && f a.above b.above && f a.below b.below
   && f a.multiple_of b.multiple_of
@@ -291,7 +300,7 @@ and fields_differ : type o f.
            t.cases
       || fields_differ seen kinds depth prev
 
-let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
+let rec walk_at_depth : type a. ctx -> dir -> string -> int -> a S.t -> t =
  fun ctx dir at depth shape ->
   match shape with
   | S.Null _ -> Null
@@ -299,7 +308,7 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
   | S.Int b ->
       Integer
         {
-          no_bounds with
+          Number.any with
           min = of_int ctx at b.min;
           max = of_int ctx at b.max;
           multiple_of = of_int ctx at b.multiple_of;
@@ -307,7 +316,7 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
   | S.Int64 b ->
       Integer
         {
-          no_bounds with
+          Number.any with
           min = of_int64 ctx at b.min;
           max = of_int64 ctx at b.max;
           multiple_of = of_int64 ctx at b.multiple_of;
@@ -322,19 +331,21 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
           multiple_of = b.multiple_of;
         }
   | S.String l ->
-      String { text with min_length = l.min_length; max_length = l.max_length }
+      String
+        { Text.any with min_length = l.min_length; max_length = l.max_length }
   | S.Enum (about, e) ->
-      described about (String { text with words = Some (List.map fst e.words) })
+      described about
+        (String { Text.any with words = Some (List.map fst e.words) })
   | S.List l ->
       Array
         {
-          items = walk_ ctx dir (at ^ "[]") depth l.elt;
+          items = walk_at_depth ctx dir (at ^ "[]") depth l.elt;
           min_items = l.min_items;
           max_items = l.max_items;
         }
   | S.Tuple items -> Tuple (tuple_items ctx dir at depth items)
   | S.Dict d ->
-      let keys = walk_ ctx dir (at ^ "[name]") depth d.key in
+      let keys = walk_at_depth ctx dir (at ^ "[name]") depth d.key in
       (match undescribed keys with
       | String _ -> ()
       | _ ->
@@ -343,7 +354,7 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
       Dict
         {
           keys;
-          values = walk_ ctx dir (at ^ ".*") depth d.value;
+          values = walk_at_depth ctx dir (at ^ ".*") depth d.value;
           min_properties = d.min_properties;
           max_properties = d.max_properties;
         }
@@ -356,7 +367,7 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
         | Described d -> Described { d with schema = nullable d.schema }
         | s -> Nullable s
       in
-      nullable (walk_ ctx dir at depth t)
+      nullable (walk_at_depth ctx dir at depth t)
   | S.Object (about, o) -> object_ ctx dir at depth about o
   | S.Any (about, a) -> described about (any ctx dir at depth a)
   | S.Map (about, m) ->
@@ -368,7 +379,7 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
             | None -> String s)
         | s -> s
       in
-      described about (formatted (walk_ ctx dir at depth m.inner))
+      described about (formatted (walk_at_depth ctx dir at depth m.inner))
   | S.Value ->
       report ctx at
         "any JSON (Wiretype.Value.json), which says nothing of its shape";
@@ -379,7 +390,7 @@ let rec walk_ : type a. ctx -> dir -> string -> int -> a S.t -> t =
           "a recursive description with no kind, any JSON from here; give its \
            object a kind";
         Any)
-      else walk_ ctx dir at (depth + 1) (Itself.force l)
+      else walk_at_depth ctx dir at (depth + 1) (Itself.force l)
 
 and tuple_items : type v f.
     ctx -> dir -> string -> int -> (v, f) S.items -> t list =
@@ -390,7 +401,7 @@ and tuple_items : type v f.
       let before = tuple_items ctx dir at depth prev in
       before
       @ [
-          walk_ ctx dir
+          walk_at_depth ctx dir
             (Printf.sprintf "%s[%d]" at (List.length before))
             depth it.described;
         ]
@@ -404,7 +415,7 @@ and any : type a. ctx -> dir -> string -> int -> a S.any -> t =
   let distinct =
     List.fold_left
       (fun acc b ->
-        let s = walk_ ctx dir at depth b in
+        let s = walk_at_depth ctx dir at depth b in
         if List.exists (equal s) acc then acc else acc @ [ s ])
       [] branches
   in
@@ -439,8 +450,9 @@ and props : type o f.
            writes one: its answer is the description it was given. *)
         let schema =
           match (m.opt, dir, m.shape) with
-          | true, Encode, S.Nullable given -> walk_ ctx dir at depth given
-          | _, (Decode | Encode), shape -> walk_ ctx dir at depth shape
+          | true, Encode, S.Nullable given ->
+              walk_at_depth ctx dir at depth given
+          | _, (Decode | Encode), shape -> walk_at_depth ctx dir at depth shape
         in
         let examples =
           List.filter_map
@@ -457,6 +469,7 @@ and props : type o f.
         @ [
             {
               name = m.name;
+              field = m.field;
               schema;
               required = Option.is_none m.absent;
               doc = m.doc;
@@ -554,7 +567,7 @@ and object_ : type o. ctx -> dir -> string -> int -> S.about -> o S.obj -> t =
       Ref name
     end
 
-let walk ctx dir ~at t = walk_ ctx dir at 0 t
+let walk ctx dir ~at t = walk_at_depth ctx dir at 0 t
 let components ctx = List.rev ctx.components
 let loose ctx = List.sort_uniq String.compare ctx.loose
 
@@ -572,6 +585,7 @@ let with_tag tag absent value (o : obj) =
     props =
       {
         name = tag;
+        field = None;
         schema = Any;
         required = not optional;
         doc = "";
@@ -596,7 +610,7 @@ module Json_schema = struct
   let some key f = function None -> [] | Some x -> [ (key, f x) ]
   let undoc = List.filter (fun (k, _) -> not (String.equal k "description"))
 
-  let bounds (b : number) =
+  let bounds (b : Number.t) =
     some "minimum" number b.min
     @ some "maximum" number b.max
     @ some "exclusiveMinimum" number b.above
@@ -761,7 +775,7 @@ end
 (* Zod *)
 
 module Zod = struct
-  let quote = Text.quote
+  let quote = Json_text.quote
 
   let is_identifier s =
     String.length s > 0
@@ -836,7 +850,7 @@ module Zod = struct
   (* Zod's multipleOf allows a few rounding errors, as a number's multiple
      does, but an integer's is exact, and JavaScript's [%] is exact on every
      integer [z.int()] takes. *)
-  let bounds ~multiple (b : number) =
+  let bounds ~multiple (b : Number.t) =
     some (fun m -> "z.gte(" ^ num m ^ ")") b.min
     @ some (fun m -> "z.lte(" ^ num m ^ ")") b.max
     @ some (fun m -> "z.gt(" ^ num m ^ ")") b.above
@@ -857,7 +871,7 @@ module Zod = struct
           Printf.sprintf "z.refine((o) => Object.keys(o).length <= %d)" n)
         max
 
-  let string_ (s : string_) =
+  let text (s : Text.t) =
     let base, extra =
       match (s.words, s.format) with
       | Some words, _ ->
@@ -894,7 +908,7 @@ module Zod = struct
         checked "z.int()"
           (bounds b ~multiple:(fun m ->
                "z.refine((n) => n % " ^ num m ^ " === 0)"))
-    | String s -> string_ s
+    | String s -> text s
     | Array a ->
         checked
           ("z.array(" ^ expr ~indent ~forward a.items ^ ")")
@@ -964,19 +978,19 @@ module Zod = struct
               else doc ^ inner ^ key p.name ^ ": " ^ s ^ ",\n")
         o.props
     in
-    let object_ make =
+    let zod_object make =
       make ^ "({\n" ^ String.concat "" members ^ indent ^ "})"
     in
     match (o.props, o.additional) with
     | [], Each a -> "z.record(z.string(), " ^ expr ~indent ~forward a ^ ")"
     | [], Allowed -> "z.object({})"
     | [], Refused -> "z.strictObject({})"
-    | _ :: _, Allowed -> object_ "z.object"
-    | _ :: _, Refused -> object_ "z.strictObject"
+    | _ :: _, Allowed -> zod_object "z.object"
+    | _ :: _, Refused -> zod_object "z.strictObject"
     (* The members it names and whatever else, as JSON Schema's
        additionalProperties says beside them. *)
     | _ :: _, Each a ->
-        "z.catchall(" ^ object_ "z.object" ^ ", " ^ expr ~indent ~forward a
+        "z.catchall(" ^ zod_object "z.object" ^ ", " ^ expr ~indent ~forward a
         ^ ")"
 
   let of_t ?indent t = expr ?indent t
@@ -1162,7 +1176,7 @@ module Melange = struct
     | Some f -> Printf.sprintf " ~%s:%s" name (float_lit f)
 
   (* Both bounds within 32 bits, which Melange's int holds. *)
-  let fits_int (b : number) =
+  let fits_int (b : Number.t) =
     match (b.min, b.max) with
     | Some lo, Some hi -> lo >= -2147483648. && hi <= 2147483647.
     | _ -> false
@@ -1531,7 +1545,7 @@ module Melange = struct
           ty = tname;
           read =
             Printf.sprintf
-              "(fun ctx path j -> match Wire.object_ ctx path j with | None -> \
+              "(fun ctx path j -> match Wire.members ctx path j with | None -> \
                None | Some o -> (match Wire.tag ctx path o %s ~absent:%s with \
                | None -> None | Some t -> %sWire.unknown_tag ctx path %s \
                [%s]))"
@@ -1573,7 +1587,9 @@ module Melange = struct
     let members =
       List.map
         (fun (p : prop) ->
-          let fname = fresh taken (lower_name p.name) in
+          let fname =
+            fresh taken (lower_name (Option.value p.field ~default:p.name))
+          in
           (* A member that may be left out and may be null reads both as
              nothing, as [opt_mem] does: one option. *)
           let nullable_optional, schema =
@@ -1669,7 +1685,7 @@ module Melange = struct
         ty = "unit";
         read =
           Printf.sprintf
-            "(fun ctx path j -> match Wire.object_ ctx path j with | None -> \
+            "(fun ctx path j -> match Wire.members ctx path j with | None -> \
              None | Some %s -> %sSome ())"
             (if refused then "o" else "_")
             (if refused then "Wire.unknown ctx path o [||]; " else "");
@@ -1681,7 +1697,7 @@ module Melange = struct
         ty = tname;
         read =
           Printf.sprintf
-            "(fun ctx path j -> match Wire.object_ ctx path j with | None -> \
+            "(fun ctx path j -> match Wire.members ctx path j with | None -> \
              None | Some o -> %s)"
             (m.build ~tag:None (fun built ->
                  Printf.sprintf "(%s : %s)" built tname));
@@ -1690,7 +1706,7 @@ module Melange = struct
             (m.written "v");
       }
 
-  let module_
+  let components
       ?(header =
         "Printed by wiretype from the server's descriptions. Do not edit.") cs =
     let st = { decls = []; types = ref [] } in

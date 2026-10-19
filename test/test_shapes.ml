@@ -25,7 +25,7 @@ let problem_json =
 (* A row's [melange] and [melange_written] are the browser's, where it is
    the looser, and read by test/melange alone. *)
 let row_json =
-  J.Object.map (fun shape text problems written _melange _melange_written ->
+  J.Object.map (fun shape text problems written _ _ ->
       { shape; text; problems; written })
   |> J.Object.mem "shape" J.string
   |> J.Object.mem "text" J.string

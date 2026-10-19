@@ -23,7 +23,7 @@ let () =
       List.iter (fun e -> prerr_endline (S.error_to_string e)) errors;
       exit 1);
   print_string
-    (S.Melange.module_
+    (S.Melange.components
        ~header:
          "Printed by wiretype from test/fixtures/shapes.ml. Do not edit: run \
           dune promote."

@@ -164,7 +164,7 @@ JSON, an integer's bound past 2^53 -- is printed loosely and listed in
 
 ### OCaml for Melange
 
-`Schema.Melange.module_` prints the components as one OCaml module for a
+`Schema.Melange.components` prints the components as one OCaml module for a
 browser, over Melange's `Js.Json`, `Js.Date` and `Js.Dict` alone: a type
 per component and the functions that read and write it, each listing
 every problem at its place with the server's codes and sentences, so a
@@ -172,7 +172,7 @@ form finds what is wrong before it sends. The module needs no library, and
 a native user of wiretype installs nothing new.
 
 ```ocaml
-let melange = J.Schema.Melange.module_ (J.Schema.components ctx)
+let melange = J.Schema.Melange.components (J.Schema.components ctx)
 ```
 
 ```ocaml

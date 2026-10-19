@@ -156,7 +156,7 @@ let hex4 st path =
 
 (* A string, at its opening quote. With [keep] it is built; without, it is
    only checked -- a value being skipped. Text with no escape is one copy. *)
-let string_ st path ~keep =
+let json_string st path ~keep =
   st.i <- st.i + 1;
   let start = st.i in
   let add_uchar b u = if keep then Buffer.add_utf_8_uchar b (Uchar.of_int u) in
@@ -315,7 +315,7 @@ let rec skip ?(remember = false) st path depth =
           ws st;
           if not (Char.equal (peek st) '"') then
             syntax st path "a member's name";
-          let name = string_ st path ~keep:true in
+          let name = json_string st path ~keep:true in
           let at = P.Member name :: path in
           let names =
             if Names.mem name names then (
@@ -355,7 +355,7 @@ let rec skip ?(remember = false) st path depth =
           | _ -> syntax st path "a ',' or a ']'"
         in
         items 0
-  | '"' -> ignore (string_ st path ~keep:false : string)
+  | '"' -> ignore (json_string st path ~keep:false : string)
   | 't' -> literal st path "true"
   | 'f' -> literal st path "false"
   | 'n' -> literal st path "null"
@@ -380,7 +380,7 @@ let rec json st path depth : Value.t =
           ws st;
           if not (Char.equal (peek st) '"') then
             syntax st path "a member's name";
-          let name = string_ st path ~keep:true in
+          let name = json_string st path ~keep:true in
           let at = P.Member name :: path in
           ws st;
           if not (Char.equal (peek st) ':') then syntax st path "a ':'";
@@ -427,7 +427,7 @@ let rec json st path depth : Value.t =
           | _ -> syntax st path "a ',' or a ']'"
         in
         items 0 []
-  | '"' -> Value.String (string_ st path ~keep:true)
+  | '"' -> Value.String (json_string st path ~keep:true)
   | 't' ->
       literal st path "true";
       Value.Bool true
@@ -574,7 +574,7 @@ let whole text =
   || String.for_all (Char.equal '0')
        (String.sub digits first (String.length digits - first))
 
-let int_ st path (b : S.int_bounds) =
+let int_bounded st path (b : S.int_bounds) =
   let text, integral = number st path in
   let negative = Char.equal text.[0] '-' in
   let n =
@@ -596,7 +596,7 @@ let int_ st path (b : S.int_bounds) =
   in
   Option.bind n (fun n -> checked st path n (Bounds.int b n))
 
-let int64_ st path (b : S.int64_bounds) =
+let int64_bounded st path (b : S.int64_bounds) =
   let text, integral = number st path in
   let negative = Char.equal text.[0] '-' in
   let n =
@@ -616,7 +616,7 @@ let int64_ st path (b : S.int64_bounds) =
   in
   Option.bind n (fun n -> checked st path n (Bounds.int64 b n))
 
-let number_ st path (b : S.number_bounds) =
+let number_bounded st path (b : S.number_bounds) =
   let text, _ = number st path in
   let f = float_of_string text in
   if not (Float.is_finite f) then
@@ -685,24 +685,24 @@ and described : type a. st -> path -> int -> int -> a S.t -> a option =
       | _ -> mismatch st path depth "true or false")
   | S.Int b -> (
       match peek st with
-      | '-' | '0' .. '9' -> int_ st path b
+      | '-' | '0' .. '9' -> int_bounded st path b
       | _ -> mismatch st path depth "a whole number")
   | S.Int64 b -> (
       match peek st with
-      | '-' | '0' .. '9' -> int64_ st path b
+      | '-' | '0' .. '9' -> int64_bounded st path b
       | _ -> mismatch st path depth "a whole number")
   | S.Number b -> (
       match peek st with
-      | '-' | '0' .. '9' -> number_ st path b
+      | '-' | '0' .. '9' -> number_bounded st path b
       | _ -> mismatch st path depth "a number")
   | S.String l ->
       if Char.equal (peek st) '"' then
-        string_bounded st path l (string_ st path ~keep:true)
+        string_bounded st path l (json_string st path ~keep:true)
       else mismatch st path depth "text"
   | S.Enum (_, e) ->
       let words () = List.map (fun (w, _) -> Text.quote w) e.words in
       if Char.equal (peek st) '"' then (
-        let w = string_ st path ~keep:true in
+        let w = json_string st path ~keep:true in
         match List.assoc_opt w e.words with
         | Some v -> Some v
         | None ->
@@ -820,7 +820,7 @@ and dict : type k v. st -> path -> int -> (k, v) S.dict -> (k * v) list option =
      let rec loop names spellings =
        ws st;
        if not (Char.equal (peek st) '"') then syntax st path "a member's name";
-       let name = string_ st path ~keep:true in
+       let name = json_string st path ~keep:true in
        ws st;
        if not (Char.equal (peek st) ':') then syntax st path "a ':'";
        st.i <- st.i + 1;
@@ -1152,7 +1152,7 @@ and name_of st path members =
       (List.find_opt same members, fun () -> String.sub st.s start len)
   | None ->
       (* Escapes or text past ASCII: read as any string is, checked. *)
-      let name = string_ st path ~keep:true in
+      let name = json_string st path ~keep:true in
       (List.find_opt (fun m -> String.equal m.name name) members, fun () -> name)
 
 and cased : type o. st -> path -> int -> o S.obj -> o option =
@@ -1167,7 +1167,7 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
       let rec loop names acc =
         ws st;
         if not (Char.equal (peek st) '"') then syntax st path "a member's name";
-        let name = string_ st path ~keep:true in
+        let name = json_string st path ~keep:true in
         let at = P.Member name :: path in
         ws st;
         if not (Char.equal (peek st) ':') then syntax st path "a ':'";

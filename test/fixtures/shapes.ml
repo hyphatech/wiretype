@@ -118,7 +118,7 @@ let tree =
 
 (* An object with no kind inside one, and names OCaml must remake. *)
 type corner = { x : float; y : float }
-type box = { type_ : string; first_name : string; at : corner }
+type box = { kind : string; first_name : string; at : corner }
 
 let box =
   let corner =
@@ -127,9 +127,8 @@ let box =
     |> J.Object.mem "y" J.number ~enc:(fun c -> c.y)
     |> J.Object.finish
   in
-  J.Object.map ~kind:"box" (fun type_ first_name at ->
-      { type_; first_name; at })
-  |> J.Object.mem "type" J.string ~enc:(fun b -> b.type_)
+  J.Object.map ~kind:"box" (fun kind first_name at -> { kind; first_name; at })
+  |> J.Object.mem ~field:"kind" "type" J.string ~enc:(fun b -> b.kind)
   |> J.Object.mem "first-name" J.string ~enc:(fun b -> b.first_name)
   |> J.Object.mem "at" corner ~enc:(fun b -> b.at)
   |> J.Object.finish

@@ -1353,7 +1353,7 @@ let kind_rows name shape () =
   | None -> Alcotest.failf "fixtures/kinds.json has no %s" name
   | Some rows ->
       List.iter
-        (fun (text, server, _zod) ->
+        (fun (text, server, _) ->
           Alcotest.(check bool)
             (Printf.sprintf "%s %S" name text)
             server
@@ -1584,6 +1584,32 @@ type placed = {
 }
 [@@deriving wiretype]
 (** A stone placed. *)
+
+(* A field renamed on the wire keeps its OCaml name for a printer of OCaml,
+   a keyword's as much as one [@key] names; one the wire spells as it is
+   gives none. *)
+let derived_fields_keep_their_names () =
+  let ctx = J.Schema.create () in
+  ignore
+    (J.Schema.walk ctx J.Schema.Encode ~at:"placed" placed_json : J.Schema.t);
+  let rec object_of = function
+    | J.Schema.Object o -> Some o
+    | J.Schema.Described { schema; _ } -> object_of schema
+    | _ -> None
+  in
+  match List.find_map (fun (_, s) -> object_of s) (J.Schema.components ctx) with
+  | Some o ->
+      Alcotest.(check (list (pair string (option string))))
+        "each member's field"
+        [
+          ("row", None);
+          ("col", None);
+          ("note", None);
+          ("as", Some "as_");
+          ("size", Some "board_size");
+        ]
+        (List.map (fun (p : J.Schema.prop) -> (p.name, p.field)) o.props)
+  | None -> Alcotest.fail "placed is an object"
 
 type side = Black_side | White_side | Not_a_side [@@deriving wiretype]
 
@@ -3162,6 +3188,8 @@ let () =
         ] );
       ( "derived",
         [
+          Alcotest.test_case "fields keep their names" `Quick
+            derived_fields_keep_their_names;
           Alcotest.test_case "built as the module loads" `Quick derived_built;
           Alcotest.test_case "shared between domains" `Quick derived_shared;
           Alcotest.test_case "values" `Quick derived;

@@ -16,6 +16,16 @@
   shared rows hold it to the server's verdict everywhere else. Melange is a
   test dependency of wiretype alone: a native user installs nothing new.
 - The Zod rows run on Bun, where they ran on Node.
+- `Object.mem` and `Object.opt_mem` take `?field`, the OCaml field a
+  member is in, and the deriver gives it wherever a field's name is not
+  the member's: `Schema.Melange` names the browser's field so, `kind` for
+  a member `"type"` that the server calls `kind`, where it made `type_`.
+  A schema's `prop` holds it, so a `prop` built by hand gains
+  `field = None`, which is breaking.
+- Breaking: what a schema says of a number is `Schema.Number.t`, and of a
+  string `Schema.Text.t`, each with `any` for one with nothing said of it:
+  `String { Schema.Text.any with max_length = Some 8 }`. They were
+  `Schema.number` and `no_bounds`, `Schema.string_` and `text`.
 
 ## 0.5.0 (2026-10-14)
 

@@ -338,7 +338,7 @@ module Object = struct
   let enc_only ?kind ?doc () =
     { about = about ?kind ?doc (); unknown = S.Skip; fields = S.Unread }
 
-  let mem ?(doc = "") ?absent ?omit ?enc ?(access = S.Read_write)
+  let mem ?field ?(doc = "") ?absent ?omit ?enc ?(access = S.Read_write)
       ?(deprecated = false) ?(examples = []) name shape m =
     {
       m with
@@ -347,6 +347,7 @@ module Object = struct
           ( m.fields,
             {
               name;
+              field;
               doc;
               shape;
               absent;
@@ -359,8 +360,8 @@ module Object = struct
             } );
     }
 
-  let opt_mem ?(doc = "") ?enc ?(access = S.Read_write) ?(deprecated = false)
-      ?(examples = []) name shape m =
+  let opt_mem ?field ?(doc = "") ?enc ?(access = S.Read_write)
+      ?(deprecated = false) ?(examples = []) name shape m =
     if writes_null shape then
       malformed "Object.opt_mem"
         "the member %S is over %s, which writes null for a value of its own, \
@@ -374,6 +375,7 @@ module Object = struct
           ( m.fields,
             {
               name;
+              field;
               doc;
               shape = S.Nullable shape;
               absent = Some None;

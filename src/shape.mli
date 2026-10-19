@@ -135,6 +135,9 @@ and ('o, 'f) fields =
 
 and ('o, 'a) mem = {
   name : string;
+  field : string option;
+      (** the OCaml field it is in, where a printer of OCaml should name it so
+      *)
   doc : string;
   shape : 'a t;
   absent : 'a option;  (** what it reads as when left out; required if none *)

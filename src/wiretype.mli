@@ -354,6 +354,7 @@ module Object : sig
       problem. *)
 
   val mem :
+    ?field:string ->
     ?doc:string ->
     ?absent:'a ->
     ?omit:('a -> bool) ->
@@ -365,16 +366,21 @@ module Object : sig
     'a t ->
     ('o, 'a -> 'b) map ->
     ('o, 'b) map
-  (** A member. Without [absent] it is required; with it, it may be left out and
-      reads as [absent]. [omit] says which values are written by leaving it out,
-      and needs [absent] where the object is read. [enc] is how it is found in a
-      value; without it the object only reads. [~access:Read_only] makes it the
-      server's to give: it is never read -- one a request holds is skipped, as a
-      client sends back what it was given, and it reads as [absent] -- and is in
-      no request's schema. [~access:Write_only] makes it the client's: it is
-      never written, and is in no answer's schema. *)
+  (** A member. [field] is the OCaml field it is in, where that is not its name:
+      [Schema.Melange] names the field so, where it would otherwise make one
+      from the member's name -- [kind] for a member ["type"], not [type_]. The
+      deriver gives it wherever a field is renamed. Without [absent] it is
+      required; with it, it may be left out and reads as [absent]. [omit] says
+      which values are written by leaving it out, and needs [absent] where the
+      object is read. [enc] is how it is found in a value; without it the object
+      only reads. [~access:Read_only] makes it the server's to give: it is never
+      read -- one a request holds is skipped, as a client sends back what it was
+      given, and it reads as [absent] -- and is in no request's schema.
+      [~access:Write_only] makes it the client's: it is never written, and is in
+      no answer's schema. *)
 
   val opt_mem :
+    ?field:string ->
     ?doc:string ->
     ?enc:('o -> 'a option) ->
     ?access:Shape.access ->
@@ -387,12 +393,12 @@ module Object : sig
   (** A member that may be left out: absent or [null] reads as [None], since
       clients write both for "nothing", and [None] is written by leaving it out.
       [access], [deprecated] and [examples] are {!mem}'s; an example is a value
-      the member holds when it is there. Raises [Invalid_argument] where the
-      description writes [null] for a value of its own, as {!nullable} says,
-      since [Some] of it would be written [null] and read back as [None]: {!mem}
-      with [~absent] over that description reads a missing member as one value
-      and [null] as its own -- [~absent:None] over a {!nullable},
-      [~absent:Value.Null] over {!Value.json}. *)
+      the member holds when it is there, and [field] {!mem}'s. Raises
+      [Invalid_argument] where the description writes [null] for a value of its
+      own, as {!nullable} says, since [Some] of it would be written [null] and
+      read back as [None]: {!mem} with [~absent] over that description reads a
+      missing member as one value and [null] as its own -- [~absent:None] over a
+      {!nullable}, [~absent:Value.Null] over {!Value.json}. *)
 
   val case_mem :
     ?doc:string ->

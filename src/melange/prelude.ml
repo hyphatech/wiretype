@@ -959,7 +959,7 @@ module Wire = struct
           None)
     | _ -> mismatch ctx path "a list" j
 
-  let object_ : Js.Json.t Js.Dict.t reader =
+  let members : Js.Json.t Js.Dict.t reader =
    fun ctx path j ->
     match Js.Json.classify j with
     | JSONObject o -> Some o
@@ -971,7 +971,7 @@ module Wire = struct
   let dict ?min_properties ?max_properties (key : 'k reader) (value : 'v reader)
       : ('k * 'v) array reader =
    fun ctx path j ->
-    match object_ ctx path j with
+    match members ctx path j with
     | None -> None
     | Some o ->
         let failed = ref false in

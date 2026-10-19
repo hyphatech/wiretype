@@ -651,8 +651,10 @@ let field_desc env ~target (ld : label_declaration) =
         some "max_properties" (get A.max_properties);
       ]
   in
-  let unit_ = [ (Nolabel, [%expr ()]) ] in
-  let bounded f args = B.pexp_apply ~loc (B.evar ~loc f) (args @ unit_) in
+  let unit_argument = [ (Nolabel, [%expr ()]) ] in
+  let bounded f args =
+    B.pexp_apply ~loc (B.evar ~loc f) (args @ unit_argument)
+  in
   let refuse attributes what =
     Location.raise_errorf ~loc
       "wiretype: %s bound %s, and this field is not one; drop them, or \
@@ -737,6 +739,12 @@ let member env (f : field) ~enc =
   let deprecated = flag A.deprecated "deprecated" in
   let enc = labelled "enc" enc in
   let name = (Nolabel, B.estring ~loc f.wire) in
+  (* The field's own name, for a printer of OCaml, where the wire's is
+     another. *)
+  let field =
+    if String.equal f.ocaml f.wire then None
+    else Some (labelled "field" (B.estring ~loc f.ocaml))
+  in
   match (is_option ld.pld_type, Attribute.get A.default ld) with
   | Some inner, _ when Option.is_some (is_option inner) ->
       Location.raise_errorf ~loc
@@ -754,7 +762,8 @@ let member env (f : field) ~enc =
         Option.map (labelled "examples") (Attribute.get A.examples ld)
       in
       let args =
-        List.filter_map Fun.id [ doc; Some enc; deprecated; access; examples ]
+        List.filter_map Fun.id
+          [ field; doc; Some enc; deprecated; access; examples ]
       in
       B.pexp_apply ~loc [%expr Wiretype.Object.opt_mem]
         (args @ [ name; (Nolabel, d) ])
@@ -771,7 +780,7 @@ let member env (f : field) ~enc =
       let absent = Option.map (labelled "absent") default in
       let args =
         List.filter_map Fun.id
-          [ doc; absent; Some enc; deprecated; access; examples ]
+          [ field; doc; absent; Some enc; deprecated; access; examples ]
       in
       B.pexp_apply ~loc [%expr Wiretype.Object.mem]
         (args @ [ name; (Nolabel, d) ])
@@ -1292,7 +1301,7 @@ let str_type_decl ~ctxt (rec_flag, tds) =
             ];
         ])
 
-let sig_type_decl ~ctxt (_rec_flag, tds) =
+let sig_type_decl ~ctxt (_, tds) =
   let loc = Expansion_context.Deriver.derived_item_loc ctxt in
   List.map
     (fun td ->

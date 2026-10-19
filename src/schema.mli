@@ -17,28 +17,40 @@
 
 type dir = Decode | Encode
 
-type number = {
-  min : float option;  (** at least *)
-  max : float option;  (** at most *)
-  above : float option;  (** greater than *)
-  below : float option;  (** less than *)
-  multiple_of : float option;
-}
+(** What a schema says of a number: its bounds. *)
+module Number : sig
+  type t = {
+    min : float option;  (** at least *)
+    max : float option;  (** at most *)
+    above : float option;  (** greater than *)
+    below : float option;  (** less than *)
+    multiple_of : float option;
+  }
 
-type string_ = {
-  words : string list option;  (** an enum's, exactly *)
-  min_length : int option;
-  max_length : int option;
-  format : Shape.format option;
-}
+  val any : t
+  (** A number, and nothing more said of it. *)
+end
+
+(** What a schema says of a string: its words, its length and its format. *)
+module Text : sig
+  type t = {
+    words : string list option;  (** an enum's, exactly *)
+    min_length : int option;
+    max_length : int option;
+    format : Shape.format option;
+  }
+
+  val any : t
+  (** A string, and nothing more said of it. *)
+end
 
 type t =
   | Any
   | Null
   | Boolean
-  | Number of number
-  | Integer of number
-  | String of string_
+  | Number of Number.t
+  | Integer of Number.t
+  | String of Text.t
   | Array of { items : t; min_items : int option; max_items : int option }
   | Tuple of t list  (** exactly these items, in order *)
   | Dict of {
@@ -76,17 +88,13 @@ and additional =
 
 and prop = {
   name : string;
+  field : string option;  (** the OCaml field it is in, where one was given *)
   schema : t;
   required : bool;
   doc : string;
   deprecated : bool;
   examples : Value.t list;
 }
-
-val no_bounds : number
-
-val text : string_
-(** A string, and nothing more said of it. *)
 
 type ctx
 (** What one document's walks share: its components, and what was found loose or
@@ -197,7 +205,7 @@ module Melange : sig
       made from, so a printer that writes more into the module -- a web
       framework's routes -- knows what to call each. *)
 
-  val module_ : ?header:string -> (string * t) list -> string
+  val components : ?header:string -> (string * t) list -> string
   (** The whole module, [header] its first comment: what wrote it, and how to
       write it again. A schema that is no object or enum is an alias of what it
       prints as. *)
