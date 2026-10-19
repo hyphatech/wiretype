@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.6.0 (2026-10-19)
 
 - `Schema.Melange` prints the components as one OCaml module for Melange,
   from the same walk as JSON Schema and Zod: a type per component and the
