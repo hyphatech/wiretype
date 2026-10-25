@@ -60,3 +60,14 @@
  (name print_shapes)
  (modules print_shapes)
  (libraries wiretype fixtures))
+
+; Every example the build makes is on a page of the documentation site.
+
+(test
+ (name test_docs)
+ (package wiretype)
+ (modules test_docs)
+ (libraries alcotest)
+ (deps
+  (glob_files ../examples/*.ml)
+  (glob_files_rec ../docs/src/content/*.{md,mdx})))

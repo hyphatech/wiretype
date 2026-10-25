@@ -1,0 +1,154 @@
+---
+title: Reading and its problems
+---
+
+import { Code } from "@astrojs/starlight/components";
+import order from "@examples/order.ml?raw";
+import problems from "@examples/problems.ml?raw";
+import tooMany from "@examples/too_many.ml?raw";
+import strict from "@examples/strict.ml?raw";
+import absent from "@examples/absent.ml?raw";
+import unknownMembers from "@examples/unknown_members.ml?raw";
+import anyJson from "@examples/any_json.ml?raw";
+
+`Wiretype.decode` reads a document in one pass over the text, with the
+description in hand, and reports every problem the document has. It
+returns the value, or the list of problems:
+
+```ocaml
+val decode :
+  ?max_depth:int -> ?max_problems:int -> 'a t -> string -> ('a, Problem.t list) result
+```
+
+## Every problem, in one pass
+
+Each problem has its path, a code a client branches on and a sentence for a
+person:
+
+<Code code={order} lang="ocaml" title="order.ml" />
+
+<Code code={problems} lang="ocaml" title="problems.ml" />
+
+```console
+$ dune exec ./reading.exe
+body.items[1].count too_small
+body.items[1].sku required
+body.items[2].sku unexpected_type
+body.items[2].count required
+```
+
+A problem is `{ at; code; message }`. `Problem.path` prints `at`:
+`items[2].count`, or `body.items[2].count` with `~root:"body"`, and a map's
+name that is wrong as `scores.purple[name]`. A member's name that is empty,
+or holds anything but letters, digits, `_`, `-`, `$` and non-ASCII text, is
+written quoted as JSON -- `items["a.b"]` -- so a path is one line, and two
+are never spelt alike. `Problem.to_string` is one line for a log: where, the
+sentence, the code; `Problem.list_to_string` is every problem, as one line.
+
+## The codes
+
+| Code | What is wrong |
+|---|---|
+| `syntax` | not JSON: reported alone |
+| `too_deep` | nested past the limit: reported alone |
+| `required` | a member that must be there is not |
+| `unexpected_type` | a value of another sort: a string for a number |
+| `too_small` | below its minimum, or its type's |
+| `too_large` | above its maximum, or its type's |
+| `not_a_multiple` | not a multiple of what it must be |
+| `too_short` | a string shorter than its minimum |
+| `too_long` | a string longer than its maximum |
+| `too_few` | a list, or a map, with fewer than its minimum |
+| `too_many` | a list, or a map, with more than its maximum |
+| `unknown_word` | not one of an enum's words, or of a union's tags |
+| `unknown_member` | a member that an object which refuses unknown ones does not have |
+| `repeated_member` | a member given twice |
+| `malformed` | a value of the right sort that its description still refuses: a string a kind cannot read, or anything where the description reads nothing |
+| `too_many_problems` | more than the limit: the last of the list |
+
+A problem's code is behaviour, and changing one is a breaking change; its
+sentence is wording.
+
+## The limits
+
+Past a hundred problems, or `~max_problems`, reading stops -- what follows,
+even text that is not JSON, is not read -- and says there were more, so a
+body of a megabyte of wrong items is a short answer:
+
+<Code code={tooMany} lang="ocaml" title="too_many.ml" />
+
+```console
+[0]: This must be a whole number, not true or false. (unexpected_type); [1]: This must be a whole number, not true or false. (unexpected_type); the document: This has more problems than the 2 listed, and was read no further. (too_many_problems)
+```
+
+`~max_depth` is how deep the document may nest, 512 unless given and never
+more than 10,000: `[]` is nested one deep, and a limit of 0 reads a scalar
+alone. A `too_deep` problem is at the first 16 segments of its path, and
+its sentence says how many levels below. A limit below 0 is 0.
+
+## Strict where readers disagree
+
+UTF-8 is checked, and a member given twice is refused anywhere in a
+document, as I-JSON (RFC 7493 §2.3) has it: which of two members of one
+name wins is not RFC 8259's to say, and two readers that choose differently
+read two documents. JSONTestSuite runs whole on every test run.
+
+<Code code={strict} lang="ocaml" title="strict.ml" />
+
+```console
+items: This must have at least 1 item. (too_few)
+items: This member is given more than once. (repeated_member)
+items[0]: This is not JSON: a value was expected at byte 11, and '}' was found. (syntax)
+items[0]: This is nested more than 2 deep. (too_deep)
+```
+
+Text that is not JSON, and nesting past the limit, are each that one
+problem alone.
+
+## Exact numbers
+
+A number is read from its digits by the description that wants it, so an
+`int` is exact. One written with a fraction or an exponent -- `2.0`,
+`1e3` -- is read as an integer where its digits are whole, as JSON Schema's
+`integer` is, and only below 2^53, from which a double cannot tell which
+whole number it is. A number that overflows a double is too large.
+
+## Absent and `null`, said once
+
+`opt_mem`, and an `option` field, read an absent member and `null` alike as
+`None`, since clients write both for "nothing"; `mem ~absent`, and
+`[@default e]`, give a default. A read-only member is the server's, never
+read: a request that sends one back has it skipped, and it reads as its
+default.
+
+<Code code={absent} lang="ocaml" title="absent.ml" />
+
+```console
+id 0, note none
+id 0, note none
+id 0, note ring
+```
+
+## Members it does not describe
+
+A member an object does not describe is skipped, and is no part of the
+value: wiretype does not keep it. `Object.error_unknown` makes it a
+problem:
+
+<Code code={unknownMembers} lang="ocaml" title="unknown_members.ml" />
+
+```console
+colour: This is not a member this object has. (unknown_member)
+```
+
+## Any JSON
+
+`Wiretype.Value.json` reads any JSON as a `Value.t`, what reads what nobody
+described. A number there is a double, as I-JSON's are, and an object's
+members are in the order the document has them. `Value.find` is the member
+of a name:
+
+<Code code={anyJson} lang="ocaml" title="any_json.ml" />
+
+`Wiretype.of_value` reads a `Value.t` you already hold, as `decode` reads
+the JSON it is, with its limits.

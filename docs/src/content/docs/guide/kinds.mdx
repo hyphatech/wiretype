@@ -1,0 +1,101 @@
+---
+title: Kinds
+---
+
+import { Code } from "@astrojs/starlight/components";
+import kinds from "@examples/kinds.ml?raw";
+import booking from "@examples/booking.ml?raw";
+
+A kind is a value with a grammar of its own, written as a JSON string. Each
+ready-made kind is a plain OCaml type, or Ptime's or Mtime's for a time and
+Uuidm's for a UUID, with its schema's `format` and its Zod check, and
+accepts no string that check refuses, so a browser never turns away what
+the server would take.
+
+| Kind | OCaml | Reads |
+|---|---|---|
+| `J.instant` | `Ptime.t`, to the ms | RFC 3339 `date-time` |
+| `J.date` | `int * int * int` | `YYYY-MM-DD` |
+| `J.duration` | `Mtime.Span.t`, to the ms | ISO 8601, weeks or days to seconds |
+| `J.uuid ?version ()` | `Uuidm.t` | RFC 9562 |
+| `J.base64`, `J.base64url` | `string`, the bytes | RFC 4648 |
+| `J.uri` | `string` | RFC 3986, held to the URL standard, IDNA included |
+| `J.ipv4`, `J.ipv6` | `string` | dotted decimal, IPv6 |
+
+## Read and written back
+
+<Code code={kinds} lang="ocaml" title="kinds.ml" />
+
+```console
+instant   "2026-09-30T14:00:00.123456+02:00" -> "2026-09-30T12:00:00.123Z"
+date      "2026-09-30" -> "2026-09-30"
+duration  "PT1H30M" -> "PT1H30M"
+uuid      "0190F6E8-7E0B-7C55-8F1A-3C1D2B4A5E6F" -> "0190f6e8-7e0b-7c55-8f1a-3c1d2b4a5e6f"
+base64    "aGVsbG8=" -> "aGVsbG8="
+base64url "aGVsbG8" -> "aGVsbG8"
+uri       "https://example.com/a?b=c" -> "https://example.com/a?b=c"
+uri       "https://example.com:99999/": the document: This must be a URI with its scheme, like https://example.com/path. (malformed)
+ipv4      "192.168.0.1" -> "192.168.0.1"
+ipv4      "192.168.0.01": the document: This must be an IPv4 address, like 192.0.2.1. (malformed)
+ipv6      "FE80::1" -> "FE80::1"
+```
+
+## Each kind
+
+- **`instant`** reads RFC 3339's `date-time` with any fraction and offset,
+  and writes it in UTC with milliseconds, so one instant has one spelling.
+  A fraction past the millisecond is dropped, toward the past, in reading
+  and in writing. A leap second is refused, and so is an instant outside
+  the years 0000 to 9999 once in UTC, which no `Ptime.t` is.
+- **`date`** is `(year, month, day)`, as RFC 3339's `full-date`.
+- **`duration`** is ISO 8601: weeks, or days, hours, minutes and seconds,
+  to the millisecond; never years or months, which are no number of
+  milliseconds. A day is 24 hours. One longer than an `Mtime.Span.t`
+  holds, or a negative one, which ISO 8601 has no spelling for, is
+  refused.
+- **`uuid`** reads versions 1 to 8, with the nil and the max UUID, or the
+  one version asked for (`~version:V7`), in either case, and writes it in
+  lower case. The max UUID is read in lower case alone, as Zod reads it.
+  Any 128 bits are a `Uuidm.t`, so one of another version, or of a variant
+  RFC 9562 does not define, is unwritable.
+- **`base64`** is RFC 4648 §4's padded base64, and **`base64url`** §5's
+  unpadded base64url; the OCaml string holds the bytes.
+- **`uri`** is RFC 3986, less what the URL standard refuses: a port past
+  65535, an `IPvFuture` host, an empty host after userinfo or before a
+  port, an `http`, `https`, `ws`, `wss` or `ftp` URI with no host or a host
+  that is not a domain or an address, and a `file` URI with userinfo, a
+  port, or a host that is not empty, a domain or an address. An `xn--`
+  label is decoded as Punycode and held to UTS #46 as the URL standard
+  applies it, with Unicode 15.0.0's tables, the bidi rule of RFC 5893
+  across the host included. Such a label is refused, where a browser might
+  take it, when it holds a joiner or a code point that may not be in NFC,
+  when it is longer than the 63 octets DNS allows a label, or when it
+  decodes to nothing but ASCII or to another `xn--`.
+- **`ipv4`** is dotted decimal: four numbers to 255, none with a leading
+  zero.
+- **`ipv6`** is RFC 4291 §2.2's full and compressed forms, with a dotted
+  IPv4 address in the last thirty-two bits, kept as written: `FE80::1`
+  stays in upper case. A zone (`%eth0`) is no part of an address, and is
+  refused.
+
+## Derived
+
+The deriver describes a `Ptime.t` as an instant, an `Mtime.Span.t` as a
+duration and a `Uuidm.t` as a UUID:
+
+<Code code={booking} lang="ocaml" title="booking.ml" />
+
+A program that names these types links `ptime`, `mtime` or `uuidm` beside
+`wiretype`.
+
+## Why these types
+
+Each kind is over a plain OCaml type, so no library's type is in an
+application's API, but for time and identity: an instant is a `Ptime.t`, a
+duration an `Mtime.Span.t` and a UUID a `Uuidm.t`, the types OCaml's
+libraries hold them in.
+
+What each kind is, its `format` says, so a schema prints no `description`
+of the library's for it: a doc is its user's, a member's or one `J.map`
+gives around the kind. A kind of your own is
+[`J.kind`](/wiretype/guide/by-hand/#kinds-of-your-own).

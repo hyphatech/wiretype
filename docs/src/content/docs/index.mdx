@@ -1,0 +1,60 @@
+---
+title: wiretype
+description: Define your JSON once and share it across your backend, front end and AI agents.
+template: splash
+---
+
+import Landing from "starlight-theme-hypha/components/Landing.astro";
+import Features from "starlight-theme-hypha/components/Features.astro";
+import Feature from "starlight-theme-hypha/components/Feature.astro";
+import { Code } from "@astrojs/starlight/components";
+import line from "@examples/line.ml?raw";
+import quickStart from "@examples/quick_start.ml?raw";
+
+<Landing
+  title="JSON contracts for OCaml."
+  tagline="Define your JSON once and share it across your backend, front end and AI agents."
+  actions={[
+    { text: "Get started", link: "/wiretype/install/", icon: "right-arrow" },
+    { text: "Reference", link: "/wiretype/reference/", variant: "secondary" },
+  ]}
+>
+
+```sh
+opam repo add hypha https://github.com/hyphatech/opam-repository.git
+opam install wiretype ppx_wiretype
+```
+
+<Fragment slot="aside">
+
+<Code code={line} lang="ocaml" title="line.ml" />
+<Code code={quickStart} lang="ocaml" title="quick_start.ml" />
+
+</Fragment>
+</Landing>
+
+<Features>
+  <Feature title="Derived from your types" icon="wand-sparkles" href="/wiretype/guide/deriver/" linkText="The deriver">
+    `[@@deriving wiretype]` writes the contract from records, variants and
+    recursive types, bounds and docs included.
+  </Feature>
+  <Feature title="Every problem at once" icon="list-checks" href="/wiretype/guide/reading/" linkText="Reading">
+    Invalid input is refused with every mistake, each at its path with a code
+    a client can act on.
+  </Feature>
+  <Feature title="JSON Schema and Zod" icon="braces" href="/wiretype/guide/zod/" linkText="Zod">
+    The same contract prints as both, and the Zod is checked against Zod
+    itself on every test run.
+  </Feature>
+  <Feature title="OCaml for the browser" icon="globe" href="/wiretype/guide/melange/" linkText="OCaml for Melange">
+    A Melange module that reads and writes as the server does, so a form finds
+    what is wrong before it sends.
+  </Feature>
+  <Feature title="Strict by the standard" icon="shield-check" href="/wiretype/guide/reading/#strict-where-readers-disagree" linkText="Strict reading">
+    UTF-8 checked, a member given twice refused as I-JSON has it, and
+    JSONTestSuite run whole.
+  </Feature>
+  <Feature title="Light" icon="zap">
+    Depends on Ptime, Mtime and Uuidm alone.
+  </Feature>
+</Features>

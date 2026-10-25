@@ -1,0 +1,89 @@
+---
+title: OCaml for Melange
+---
+
+import { Code } from "@astrojs/starlight/components";
+import melange from "@examples/melange.ml?raw";
+
+`Schema.Melange.components` prints the components of a walk as one OCaml
+module for a browser, over Melange's `Js.Json`, `Js.Date` and `Js.Dict`
+alone. It has a type per component and the functions that read and write
+it, each listing every problem at its place with the server's codes and
+sentences, so a form finds what is wrong before it sends. The module needs
+no library, and a native user of wiretype installs nothing new.
+
+## Printing
+
+<Code code={melange} lang="ocaml" title="melange.ml" />
+
+
+`~header` is the module's first comment: what wrote it, and how to write it
+again. The module it prints holds, for the line:
+
+```ocaml
+type line = { sku : string; quantity : int; note : string option; }
+
+val decode_line : string -> (line, Problem.t list) result
+val line_of_json : Js.Json.t -> (line, Problem.t list) result
+val encode_line : line -> (string, Problem.t list) result
+val line_to_json : line -> (Js.Json.t, Problem.t list) result
+```
+
+Save it beside your Melange code, as a module of its own, and call
+`decode_line` on what a form holds.
+
+## What the module holds
+
+It opens with a `Problem` -- `{ at; code; message }`, `at` the path
+`Problem.path` prints, `code` the server's codes and `message` its
+sentences -- and the kinds' types: `Instant.t` over a `Js.Date.t`,
+`Duration.t` over milliseconds, `Uuid.t` over the lower-case text.
+
+Then each component given, named flat by `Melange.name`: for `OrderLine`
+the type `order_line`, `decode_order_line` from text and
+`order_line_of_json` from a `Js.Json.t`, `encode_order_line` to text and
+`order_line_to_json`. Each lists every problem, reading and writing alike,
+since the browser's writer is where a form finds what is wrong before it
+sends.
+
+## What each schema becomes
+
+| Schema | OCaml |
+|---|---|
+| any JSON | `Js.Json.t` |
+| null | `unit` |
+| a number | `float` |
+| an integer | `int` where both its bounds lie within 32 bits, which Melange's `int` holds; otherwise a whole `float`, refused past 2^53 as `z.int()` refuses it |
+| a string | `string`, its length counted in code points |
+| an enum | a variant, a constructor per word |
+| a list | an `array` |
+| a tuple | a tuple |
+| a map | an array of pairs, in the document's order |
+| an object | a record; one with no kind is named by its place, `order_line_note`, and one with no members is `unit` |
+| a member that may be left out | an `option`; absent and `null` are both `None` where it is nullable too |
+| a value of several sorts | a variant by sort: `Boolean of _`, `Number of _`, `String of _`, `Array of _`, `Object of _` |
+| a union by tag | a variant, a constructor per case with the case's members as an inline record |
+| an instant, a duration, a UUID | the module's own abstract types |
+
+A name is made as OCaml wants one: a field in lower case with each run of
+other characters as `_` and a keyword given `_` after it; a constructor
+with its first letter raised, `W` before a digit; a twin gets `_2`. A
+member's `~field` names its record's field instead -- `kind` for a member
+`"type"`, not `type_` -- and the deriver gives it wherever a field is
+renamed. A schema that is no object or enum is an alias of what it prints
+as.
+
+## Where the browser is looser
+
+The browser is the looser in four places, by design:
+
+- a whole number past 2^53;
+- a member given twice, which `JSON.parse` reads as the last of them;
+- nesting, which `JSON.parse` does not limit;
+- a URI, held to the browser's `URL` and not to the server's grammar.
+
+Text that is not JSON is a `syntax` problem at the document, where the
+server names the member it was reading. Everywhere else, the module reads
+and writes as the server does: one file of rows is read through `decode`
+and through the printed module on every test run, and held to the same
+problems.

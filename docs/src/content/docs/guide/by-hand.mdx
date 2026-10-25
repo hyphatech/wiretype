@@ -1,0 +1,167 @@
+---
+title: Descriptions by hand
+---
+
+import { Code } from "@astrojs/starlight/components";
+import lineByHand from "@examples/line_by_hand.ml?raw";
+import size from "@examples/size.ml?raw";
+import collections from "@examples/collections.ml?raw";
+import figure from "@examples/figure.ml?raw";
+import flexibleId from "@examples/flexible_id.ml?raw";
+import orderNumber from "@examples/order_number.ml?raw";
+import comment from "@examples/comment.ml?raw";
+import byHand from "@examples/by_hand.ml?raw";
+
+The deriver writes what you could write yourself. A description is an
+ordinary OCaml value of type `'a Wiretype.t`, built from the library's
+combinators, and one written by hand reads, writes and prints exactly as a
+derived one does.
+
+## An object
+
+The quick start's line, by hand:
+
+<Code code={lineByHand} lang="ocaml" title="line_by_hand.ml" />
+
+`Object.map` takes the function that builds the value, and each
+`Object.mem` gives it one argument, in order. `~enc` is how the member is
+found in a value; an object whose members have no `~enc` only reads.
+`~kind` names the object, and makes it a component of a schema; `~doc` is
+what it is, for whoever reads the schema.
+
+A member is one of:
+
+- `Object.mem`: required, unless `~absent` gives the value it reads as
+  when left out. `~omit` says which values are written by leaving the
+  member out, and needs `~absent` where the object is read.
+- `Object.opt_mem`: a member that may be left out. Absent or `null` reads
+  as `None`, since clients write both for "nothing", and `None` is written
+  by leaving it out.
+- `Object.case_mem`: a union's tag, below.
+
+Each takes `~doc`, `~deprecated` and `~examples`, which a schema prints,
+and `~access`, which says which of a request and an answer the member is in
+([Writing](/wiretype/guide/writing/#read-only-and-write-only) says how).
+`~field` names the OCaml field a member is in, where that is not its name:
+the [Melange printer](/wiretype/guide/melange/) names its record's field
+so.
+
+A member the object does not describe is skipped, unless
+`Object.error_unknown` makes it a problem. `Object.enc_only` starts an
+object that is written and never read -- a request to another server --
+whose members need no function to build a value from.
+
+## Scalars
+
+`J.null v`, `J.bool`, `J.int`, `J.int64`, `J.number` and `J.string` are
+JSON's scalars. `J.int_bounded`, `J.int64_bounded`, `J.number_bounded` and
+`J.string_bounded` state bounds, which [Bounds](/wiretype/guide/bounds/)
+covers. The ready-made kinds -- instants, dates, durations, UUIDs, base64,
+URIs and IP addresses -- are on [their own page](/wiretype/guide/kinds/).
+
+## Enums
+
+An enum writes each value as its word, and reads it back from it. Its
+words are in the schema, exactly:
+
+<Code code={size} lang="ocaml" title="size.ml" />
+
+## Lists, tuples, maps and nullables
+
+<Code code={collections} lang="ocaml" title="collections.ml" />
+
+- `J.list` is a JSON array of one description, with an optional count.
+- `J.tuple2`, `J.tuple3` and `J.tuple4` are arrays of exactly that many
+  items, each read by its own description; `J.Tuple` builds one of any
+  length as an object is built, a function and each item it takes.
+- `J.dict` is a JSON object read as a map: every member, in the document's
+  order, its name read by `~key` as the JSON string it is written as --
+  `J.string`, an enum, a kind over text such as `J.uuid` -- and its value
+  by `~value`. A name that is wrong is a problem at the name.
+- `J.nullable` is the description, or `null` for `None`.
+
+## Unions on a tag
+
+A union is an object whose tag member -- read first, wherever it is --
+decides which case's members the rest are:
+
+<Code code={figure} lang="ocaml" title="figure.ml" />
+
+`Object.Case.map tag object ~dec` is the case `tag` stands for, whose
+members are `object`'s; without `~dec` it is written and never read.
+`~enc_case` gives the case of a value, and the tag is written first. An
+object has at most one union, since the tag is read before the members it
+decides. `~absent` is the tag of a value that has none.
+
+## Values of several sorts
+
+`J.any` reads a value by the description of the JSON sort it is, and
+writes it by the one `~enc` picks:
+
+<Code code={flexibleId} lang="ocaml" title="flexible_id.ml" />
+
+## Kinds of your own
+
+A value with a grammar of its own -- an id, a coordinate -- is a kind over
+another description. `~parse`'s `Error` is a sentence for a person, and a
+`malformed` problem at the value's place:
+
+<Code code={orderNumber} lang="ocaml" title="order_number.ml" />
+
+Without `~print`, a kind is only read. `J.map` is a plain change of type,
+`~parse` from what the inner description reads and `~print` back; a
+direction left out is one the description is never used in, and a `parse`
+that can fail is a kind's. `~format` gives a kind a schema's format, from
+`Shape.format`.
+
+## Descriptions of themselves
+
+`J.rec'` takes a lazy description, so a description can hold itself:
+
+<Code code={comment} lang="ocaml" title="comment.ml" />
+
+The lazy is forced where the description is first read, written or walked,
+by whichever domain reaches it first, while another reaching it then waits,
+so a description may be shared between domains from the start. One that
+comes back to itself before it reads or writes anything --
+`let rec t = lazy (rec' t)` -- describes nothing: `decode` refuses what is
+there as `malformed`, and `encode` the value as `unspellable`.
+
+## What these write and read
+
+A program writes a value of each of the modules above, and reads a few
+documents back:
+
+<Code code={byHand} lang="ocaml" title="by_hand.ml" />
+
+```console
+$ dune exec ./by_hand.exe
+line: {"sku":"A1","quantity":2}
+size: "medium"
+tags: ["tea","green"]
+point: [1.5,-2]
+scores: {"ada":3,"alan":2}
+parent: null
+figure: {"type":"circle","radius":2}
+id: 7
+order number: "ord_42"
+comment: {"text":"First","replies":[{"text":"Second","replies":[]}]}
+figure: read
+figure: type: This must be one of "circle" or "square". (unknown_word)
+id: read
+id: the document: This must be a whole number. (malformed)
+order number: the document: This must be ord_ and its digits. (malformed)
+```
+
+## A description that can mean nothing
+
+A description is a constant written in source, so one that can mean
+nothing raises `Invalid_argument` where it is built: the mistake is found
+when the program starts, or in its first test, and never on a request.
+Among them are a bound no value meets, two enum values with one word, a
+member described twice, an object with two unions, a member written by
+leaving it out that is read as required, and a nullable over what already
+writes `null`. Each function's interface says when it raises.
+
+A description is `Wiretype.Shape.t`, a public GADT, so you can
+[walk it too](/wiretype/guide/walking/).

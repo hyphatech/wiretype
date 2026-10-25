@@ -1,0 +1,130 @@
+---
+title: Install
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+You need **opam**, OCaml's package manager, and **OCaml 5.5 or later**.
+wiretype brings **dune**, the build tool, with it.
+
+## 1. Install opam
+
+<Tabs>
+<TabItem label="macOS">
+
+```sh
+brew install opam
+```
+
+</TabItem>
+<TabItem label="Linux">
+
+```sh
+bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)"
+```
+
+</TabItem>
+<TabItem label="Windows">
+
+```powershell
+winget install Git.Git OCaml.opam
+```
+
+wiretype should work on Windows, but it is not tested there. If something
+fails, [WSL](https://learn.microsoft.com/windows/wsl/install) gives you a
+Linux to follow the Linux steps in.
+
+</TabItem>
+</Tabs>
+
+## 2. Set up OCaml
+
+```sh
+opam init
+```
+
+Answer yes when it offers to set up your shell. This installs the latest
+OCaml, which takes a few minutes. Then let this terminal see it -- a new
+terminal does by itself:
+
+<Tabs>
+<TabItem label="macOS and Linux">
+
+```sh
+eval $(opam env)
+```
+
+</TabItem>
+<TabItem label="Windows">
+
+```powershell
+(& opam env) -split '\r?\n' | ForEach-Object { Invoke-Expression $_ }
+```
+
+</TabItem>
+</Tabs>
+
+<details>
+<summary>Already had opam?</summary>
+
+Check `ocaml -version`. If it is older than 5.5, make a switch -- an
+environment of its own -- with the latest OCaml:
+
+```sh
+opam switch create wiretype ocaml-base-compiler
+eval $(opam env)
+```
+
+</details>
+
+## 3. Install wiretype
+
+```sh
+opam repo add hypha https://github.com/hyphatech/opam-repository.git
+opam install wiretype ppx_wiretype
+```
+
+| Package | What it is |
+|---|---|
+| `wiretype` | descriptions: reading, writing, bounds, kinds, schemas; links Ptime, Mtime and Uuidm alone |
+| `ppx_wiretype` | `[@@deriving wiretype]`, which writes a type's description |
+
+A program that only writes its descriptions by hand needs `wiretype` alone.
+
+## 4. Name it in dune
+
+A program names the libraries it uses in its `dune` file, and the deriver
+as a preprocessor:
+
+```lisp
+(executable
+ (name main)
+ (libraries wiretype)
+ (preprocess (pps ppx_wiretype)))
+```
+
+A description that names a time or a UUID -- a `Ptime.t`, an
+`Mtime.Span.t` or a `Uuidm.t` -- needs that library in `libraries` too:
+`ptime`, `mtime` or `uuidm`.
+
+## Check it worked
+
+```console
+$ ocaml -version
+$ opam list wiretype ppx_wiretype
+```
+
+The first says 5.5 or later. The second lists both packages with a version,
+not `--`, under *Installed*.
+
+## Your editor
+
+For completion, types on hover and errors as you type, install the language
+server, then the **OCaml Platform** extension in VS Code -- or the OCaml
+support of your editor:
+
+```sh
+opam install ocaml-lsp-server
+```
+
+The [quick start](/wiretype/quick-start/) writes a first description, next.

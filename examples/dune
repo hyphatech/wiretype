@@ -1,0 +1,44 @@
+; Small programs, each showing one thing a program does with wiretype, for the
+; documentation to point at, and the modules they share. Each page imports
+; the whole file it shows, and every file is built with the repository, so an
+; example that stops compiling as the library changes is found by the build
+; and not by a reader.
+
+(executables
+ (names
+  quick_start
+  schemas
+  by_hand
+  deriver
+  problems
+  too_many
+  strict
+  absent
+  unknown_members
+  any_json
+  write
+  refused
+  to_value
+  nullable_twice
+  bounds
+  no_value
+  kinds
+  booking
+  user_schemas
+  loose
+  zod
+  melange
+  walk)
+ (libraries wiretype ptime mtime uuidm)
+ (preprocess
+  (pps ppx_wiretype)))
+
+; @all builds only the modules a program links, and a piece no program links
+; would be skipped, so @all asks for this directory's @check, which compiles
+; every module.
+
+(rule
+ (alias all)
+ (deps
+  (alias check))
+ (action (progn)))

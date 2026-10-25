@@ -1,0 +1,111 @@
+---
+title: JSON Schema
+---
+
+import { Code } from "@astrojs/starlight/components";
+import user from "@examples/user.ml?raw";
+import userSchemas from "@examples/user_schemas.ml?raw";
+import loose from "@examples/loose.ml?raw";
+
+`Wiretype.Schema` walks a description once and prints it as JSON Schema
+2020-12, as zod/mini and as OCaml for Melange, so the three cannot
+disagree. It knows no HTTP: a web framework's document is built from it,
+and so can anybody's.
+
+## A walk
+
+A walk is in a direction: what a request's body reads (`Decode`) and what
+an answer writes (`Encode`). A context collects what one document's walks
+share -- its components, and what was found loose or wrong on the way:
+
+<Code code={user} lang="ocaml" title="user.ml" />
+
+<Code code={userSchemas} lang="ocaml" title="user_schemas.ml" />
+
+It prints each component first:
+
+```console
+UserInput: {"description":"A user of the shop.","type":"object","properties":{"email":{"type":"string"},"password":{"type":"string"},"nickname":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["email"]}
+User: {"description":"A user of the shop.","type":"object","properties":{"id":{"type":"integer"},"email":{"type":"string"},"nickname":{"type":"string"}},"required":["email"]}
+```
+
+`at` names where the description is used, for what is reported.
+
+## Components and their names
+
+A named object is a component: each object with a `kind`, but for a
+union's case, named by it -- `order line` is `OrderLine`
+(`Schema.name_of_kind`). A request's schema and an answer's differ where a
+member is read-only, write-only, or an `opt_mem` a request may give as
+`null`, and the request's is then `<Name>Input`, at any depth. A name
+follows from the description and the direction alone, never from what else
+was walked or in what order.
+
+A component is walked from its own root wherever it is reached, so kinds
+that hold each other in a ring of any length refer to each other, and a
+recursive description with no kind is expanded to the same depth inside
+each. `Schema.components` lists each after the components it refers to,
+but for one it is recursive with, which comes later.
+
+## What each schema says
+
+- An object that refuses members it does not describe says so.
+- Bounds -- ranges, `multiple_of`, lengths, counts -- are in each.
+- A doc, wherever it is given -- an object, a member, an enum, a kind, a
+  map, a union -- is JSON Schema's `description`.
+- A deprecated member is `deprecated`, and a member's examples are its
+  `examples`.
+- A kind is its `format`.
+
+## Printing
+
+The program above prints in three ways. `Json_schema.of_t` prints one
+schema, and it printed each component first. `Json_schema.document` is a
+whole schema: the root, with its components under `$defs`:
+
+```console
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"#/$defs/UserInput","$defs":{"UserInput":{...},"User":{...}}}
+```
+
+`Json_schema.of_t` refers to a component at `defs`, `"#/$defs/"` unless
+given; OpenAPI's is `"#/components/schemas/"`, which the program's last
+line uses for the answer:
+
+```console
+{"$ref":"#/components/schemas/User"}
+```
+
+## Loose and wrong
+
+What a walk could not make right is in `Schema.errors`, and a schema
+printed in spite of one says something the description does not, so check
+it before printing:
+
+| Error | What it is |
+|---|---|
+| `Kind_shared` | two different descriptions under one kind's name |
+| `Kind_not_a_name` | a kind whose name does not begin with a letter |
+| `Key_not_text` | a map's key whose description is not text |
+| `Unwritable` | a case's tag, or an example, that cannot be written: an example outside its member's bounds among them |
+
+What a schema can say only loosely is printed loosely and listed in
+`Schema.loose`, never guessed at: any JSON (`Value.json`), which says
+nothing of its shape; a recursive description with no kind, where its
+expansion stops; an integer's bound past 2^53, which is left out since a
+double holds it only roughly; and a value of several sorts that none of
+its descriptions reads.
+
+<Code code={loose} lang="ocaml" title="loose.ml" />
+
+```console
+second: Two different descriptions share the kind that names Item. (kind_shared)
+big: a bound past 2^53, which a double holds only roughly
+extra: any JSON (Wiretype.Value.json), which says nothing of its shape
+```
+
+## The schema as a value
+
+A walk gives a `Schema.t`, a plain variant: `Object`, `Array`, `Tagged`,
+`Ref` and the rest, each with what it says. A printer of your own reads it
+as the three printers do, and a schema built by hand prints as one walked.
+The [reference](/wiretype/reference/) lists every case.

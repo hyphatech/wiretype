@@ -4,7 +4,8 @@ wiretype is an OCaml library of Hypha Stack. It describes a JSON shape once:
 it reads a document with every problem found, writes a value, and prints
 itself as JSON Schema, as Zod and as OCaml for Melange. `ppx_wiretype`
 derives a description from a type. This file is for anyone changing it,
-human or agent. Users start at [README.md](README.md).
+human or agent. Users start at [README.md](README.md) and the
+documentation site, [docs/](docs/src/content/docs/index.mdx).
 
 ## Commands
 
@@ -14,11 +15,13 @@ make test    # every suite, the kinds' rows through Zod, and the shared rows
              # through the printed Melange module
 make lint    # formatting, odoc, and the release build
 make fmt     # format in place
+make docs    # the documentation site into _build/docs, as Pages publishes it; docs-serve serves it
 ```
 
-The Zod rows and the Melange rows need Bun 1.3 or later; `make test-zod`
-runs the Zod rows alone. Melange is a test dependency, installed with the
-rest. CI runs `make lint` and `make test` on OCaml 5.5.
+The Zod rows, the Melange rows and `make docs` need Bun 1.3 or later;
+`make test-zod` runs the Zod rows alone. Melange is a test dependency,
+installed with the rest. CI runs `make lint` and `make test` on OCaml 5.5.
+`docs.yml` publishes the site to GitHub Pages on every push to `main`.
 
 ## Layout
 
@@ -43,6 +46,13 @@ src/                 wiretype: depends on Ptime, Mtime and Uuidm alone
                      reads, and the IDNA tables from unicode/
   unicode/           Unicode 15.0.0's own data files
 ppx/                 ppx_wiretype: [@@deriving wiretype]
+docs/                the documentation site, a Starlight site in Hypha's look,
+                     from starlight-theme-hypha: its pages in
+                     src/content/docs/, each importing the examples it shows
+                     whole, as "@examples/<file>.ml?raw" into Starlight's
+                     <Code>; built into _build/docs, which dune clean removes
+examples/            the programs the site shows, and the modules they share,
+                     each a whole file built with the rest
 test/
   test_wiretype      reading, writing, the kinds and derived descriptions;
                      JSONTestSuite and IdnaTestV2 run whole
@@ -50,6 +60,7 @@ test/
   test_shapes        the shapes' rows on the server
   test_ppx_wiretype  what the deriver refuses, and the words it refuses in
   print_shapes       the Melange module printed for the fixtures' shapes
+  test_docs          every example imported whole by a page
   zod/               the kinds' rows as Zod reads them, on Bun's runner
   fixtures/          the kinds' rows and the shapes' rows, one file each, read
                      by the OCaml suites, the Zod rows and the Melange rows;
@@ -166,7 +177,9 @@ break.
 
 ## Changes and releases
 
-Its two packages are released together. `Shape.t` is closed: a
+Its two packages are released together. A user-visible change updates the
+page of the documentation site that describes it, not the README. `Shape.t`
+is closed: a
 constructor added to it is breaking, since walking it is the library's
 promise. A problem's sentence is wording; a problem's code, an attribute
 the deriver reads, the name it writes and what a schema prints for a

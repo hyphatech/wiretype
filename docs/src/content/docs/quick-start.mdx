@@ -1,0 +1,91 @@
+---
+title: Quick start
+---
+
+import { Code } from "@astrojs/starlight/components";
+import line from "@examples/line.ml?raw";
+import quickStart from "@examples/quick_start.ml?raw";
+import schemas from "@examples/schemas.ml?raw";
+
+Describe a JSON shape once, or derive it from your type. That one value
+reads a document and reports every problem in it, writes a value, checks
+the bounds it states, and prints itself as JSON Schema 2020-12, as Zod and
+as OCaml for Melange, so a server, a browser and a model's tool call read
+the same contract.
+
+## Read a document
+
+A line of an order, with bounds on its quantity and its note, in a module
+of its own:
+
+<Code code={line} lang="ocaml" title="line.ml" />
+
+A program reads a document that gets both wrong:
+
+<Code code={quickStart} lang="ocaml" title="quick_start.ml" />
+
+```console
+$ dune exec ./quick_start.exe
+quantity: This must be at most 99. (too_large)
+note: This must be text, not a number. (unexpected_type)
+```
+
+What happened:
+
+- `[@@deriving wiretype]` wrote `line_json`, the type's description. The
+  doc comments are its docs, and `[@min]`, `[@max]` and `[@max_length]`
+  its bounds. [The deriver](/wiretype/guide/deriver/) lists every
+  attribute.
+- `J.decode` read the document in one pass and found both problems, each
+  at its path with a code a client branches on and a sentence for a
+  person. [Reading](/wiretype/guide/reading/) says what else it checks.
+
+## Print the schemas
+
+The same description, as the schemas a client reads -- an answer here;
+walked as a request (`Decode`) it is `LineInput`, whose `note` may be
+`null`:
+
+<Code code={schemas} lang="ocaml" title="schemas.ml" />
+
+`zod` is this TypeScript:
+
+```ts
+/** A line of an order. */
+export const LineSchema = z.object({
+  sku: z.string(),
+  /** how many */
+  quantity: z.int().check(z.gte(1), z.lte(99)),
+  note: z.optional(z.string().check(z.maxLength(200))),
+});
+export type Line = z.infer<typeof LineSchema>;
+```
+
+and `json_schema` this JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/Line",
+  "$defs": {
+    "Line": {
+      "description": "A line of an order.",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string" },
+        "quantity": { "type": "integer", "minimum": 1, "maximum": 99, "description": "how many" },
+        "note": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["sku", "quantity"]
+    }
+  }
+}
+```
+
+## Where next
+
+- [Descriptions by hand](/wiretype/guide/by-hand/), for a shape the
+  deriver does not write.
+- [JSON Schema](/wiretype/guide/json-schema/), [Zod](/wiretype/guide/zod/)
+  and [OCaml for Melange](/wiretype/guide/melange/), for what each printer
+  writes.
