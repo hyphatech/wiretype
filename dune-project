@@ -20,8 +20,7 @@
 
 (package
  (name wiretype)
- (synopsis
-  "JSON contracts for OCaml: one description validates, writes, and prints JSON Schema, Zod and OCaml for Melange")
+ (synopsis "JSON contracts for modern OCaml")
  (description
   "One value describes a JSON shape: it reads a document in one pass with every problem found, writes a value, checks the bounds it states, and prints itself as JSON Schema 2020-12, as Zod and as OCaml for Melange, so a server, a browser and a model read one contract. Depends on Ptime, Mtime and Uuidm alone.")
  (depends

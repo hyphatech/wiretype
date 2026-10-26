@@ -27,7 +27,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "wiretype",
-      description: "Define your JSON once and share it across your backend, front end and AI agents.",
+      description: "JSON contracts for modern OCaml.",
       logo: { src: "starlight-theme-hypha/assets/hypha.webp" },
       favicon: "/favicon-32.png",
       head: [

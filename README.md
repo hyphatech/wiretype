@@ -6,7 +6,8 @@
 ![OCaml 5.5+](https://img.shields.io/badge/OCaml-5.5%2B-EC6813?logo=ocaml&logoColor=white)
 [![Hypha Stack](https://img.shields.io/badge/Hypha-Stack-d4a820?labelColor=15120e)](https://hyphatech.io/stack/)
 
-JSON contracts for OCaml.
+JSON contracts for modern OCaml.
+Strict, light and derived from your types. Built for JSON Schema, Zod and Melange.
 
 **Documentation**: [hyphatech.github.io/wiretype](https://hyphatech.github.io/wiretype/)
 
