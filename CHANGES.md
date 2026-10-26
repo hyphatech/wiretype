@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.6.1 (2026-10-26)
 
 - `Wiretype.of_text` and `Wiretype.to_text` read and write a value as the
   one text a query parameter, a path segment, a header or a form's field
