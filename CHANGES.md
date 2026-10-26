@@ -1,5 +1,15 @@
 # Changes
 
+## Unreleased
+
+- `Wiretype.of_text` and `Wiretype.to_text` read and write a value as the
+  one text a query parameter, a path segment, a header or a form's field
+  carries, by the description a body's member is: a scalar as the JSON it
+  is written as, a string -- an enum's word, a kind over text -- unquoted,
+  with the description's bounds, grammar and problems. Text a description
+  cannot read is `unexpected_type`, said as what it must be. See the guide's
+  *Reading and its problems*.
+
 ## 0.6.0 (2026-10-19)
 
 - `Schema.Melange` prints the components as one OCaml module for Melange,

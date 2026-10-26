@@ -19,6 +19,20 @@ let decode ?max_depth ?max_problems t s =
 let encode = Encode.run
 let to_value = Decode.written
 let of_value t v = Decode.run t (Value.to_string v)
+let of_text = Decode.text
+
+(* What [encode] writes, [decode] reads, so a string it wrote reads back as
+   the text it holds. *)
+let to_text t v =
+  match encode t v with
+  | Error u -> Error u
+  | Ok json when String.length json > 0 && Char.equal json.[0] '"' -> (
+      match
+        Decode.run S.(String { min_length = None; max_length = None }) json
+      with
+      | Ok s -> Ok s
+      | Error _ -> assert false (* what encode writes, decode reads *))
+  | Ok json -> Ok json
 
 (* A description is a constant written in source, so one that can mean
    nothing is refused where it is built -- when the program starts, or in

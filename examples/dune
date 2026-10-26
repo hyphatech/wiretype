@@ -7,6 +7,7 @@
 (executables
  (names
   quick_start
+  text
   schemas
   by_hand
   deriver

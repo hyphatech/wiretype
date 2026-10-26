@@ -15,3 +15,6 @@ val run :
 
 val written : 'a Shape.t -> 'a -> (Value.t, Unwritable.t) result
 (** A value as the JSON it is written as. *)
+
+val text : 'a Shape.t -> string -> ('a, Problem.t list) result
+(** [Wiretype.of_text]. *)

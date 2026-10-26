@@ -2943,6 +2943,129 @@ let bytes () =
     "an int past 2^53, as its digits" (Ok "9007199254740993")
     (written J.int 9007199254740993)
 
+(* A value as one text: a scalar's JSON, a string's unquoted, read by the
+   description a body's member is read by. *)
+let text_codes d s =
+  match J.of_text d s with
+  | Ok _ -> []
+  | Error ps -> List.map (fun (p : P.t) -> P.code_to_string p.code) ps
+
+let texts () =
+  let read what d s expected =
+    Alcotest.(check (result int (list string)))
+      what expected
+      (Result.map_error
+         (List.map (fun (p : P.t) -> P.code_to_string p.code))
+         (J.of_text d s))
+  in
+  read "digits" J.int "20" (Ok 20);
+  read "a negative" J.int "-3" (Ok (-3));
+  read "an exponent, whole" J.int "1e3" (Ok 1000);
+  read "a leading zero is no JSON number" J.int "007"
+    (Error [ "unexpected_type" ]);
+  read "a plus is no JSON number" J.int "+3" (Error [ "unexpected_type" ]);
+  read "a space is no part of a number" J.int " 3" (Error [ "unexpected_type" ]);
+  read "a word" J.int "many" (Error [ "unexpected_type" ]);
+  read "a fraction" J.int "2.5" (Error [ "unexpected_type" ]);
+  read "nothing" J.int "" (Error [ "unexpected_type" ]);
+  read "within its bounds" (J.int_bounded ~min:1 ~max:100 ()) "100" (Ok 100);
+  read "above them"
+    (J.int_bounded ~min:1 ~max:100 ())
+    "101" (Error [ "too_large" ]);
+  read "below them" (J.int_bounded ~min:1 ()) "0" (Error [ "too_small" ]);
+  read "every bound broken"
+    (J.int_bounded ~max:10 ~multiple_of:5 ())
+    "12"
+    (Error [ "too_large"; "not_a_multiple" ]);
+  Alcotest.(check (result (float 0.) (list string)))
+    "a number" (Ok 2.5e-4)
+    (Result.map_error (fun _ -> [ "?" ]) (J.of_text J.number "2.5e-4"));
+  Alcotest.(check (list string))
+    "infinity is no number" [ "unexpected_type" ]
+    (text_codes J.number "inf");
+  Alcotest.(check (result bool (list string)))
+    "true" (Ok true)
+    (Result.map_error (fun _ -> [ "?" ]) (J.of_text J.bool "true"));
+  Alcotest.(check (list string))
+    "a capital is no boolean" [ "unexpected_type" ] (text_codes J.bool "True");
+  let string what d s expected =
+    Alcotest.(check (result string (list string)))
+      what expected
+      (Result.map_error
+         (List.map (fun (p : P.t) -> P.code_to_string p.code))
+         (J.of_text d s))
+  in
+  string "text" J.string "Kim Li" (Ok "Kim Li");
+  string "digits are text to a string" J.string "20" (Ok "20");
+  string "so is true" J.string "true" (Ok "true");
+  string "so is null" J.string "null" (Ok "null");
+  string "a quote is a quote" J.string {|say "hi"\n|} (Ok {|say "hi"\n|});
+  string "empty" J.string "" (Ok "");
+  string "a length in code points"
+    (J.string_bounded ~max_length:2 ())
+    "éé" (Ok "éé");
+  string "too long"
+    (J.string_bounded ~max_length:2 ())
+    "ééé" (Error [ "too_long" ]);
+  string "not UTF-8" J.string "\xff" (Error [ "malformed" ]);
+  string "a kind over text" J.uri "https://example.com/a"
+    (Ok "https://example.com/a");
+  Alcotest.(check (list string)) "an enum's word" [] (text_codes colour "white");
+  Alcotest.(check (list string))
+    "a word it has not" [ "unknown_word" ] (text_codes colour "blue");
+  Alcotest.(check (list string)) "a date" [] (text_codes J.date "2026-09-30");
+  Alcotest.(check (list string))
+    "no date" [ "malformed" ]
+    (text_codes J.date "2026-02-30");
+  Alcotest.(check (list string))
+    "a UUID" []
+    (text_codes (J.uuid ()) "3f2504e0-4f89-41d3-9a0c-0305e82c3301");
+  Alcotest.(check (list string))
+    "an object reads no text" [ "unexpected_type" ]
+    (text_codes
+       (J.Object.map (fun x -> x)
+       |> J.Object.mem "x" J.int ~enc:Fun.id
+       |> J.Object.finish)
+       "{}");
+  Alcotest.(check (list string))
+    "what a number must be, and not what it was not"
+    [ "This must be a whole number." ]
+    (match J.of_text J.int "many" with
+    | Ok _ -> []
+    | Error ps -> List.map (fun (p : P.t) -> p.message) ps)
+
+let texts_written () =
+  let text d v = Result.map_error J.Unwritable.to_string (J.to_text d v) in
+  Alcotest.(check (result string string)) "a number" (Ok "20") (text J.int 20);
+  Alcotest.(check (result string string))
+    "a float, shortest" (Ok "0.1") (text J.number 0.1);
+  Alcotest.(check (result string string))
+    "a string, unquoted" (Ok {|say "hi"|})
+    (text J.string {|say "hi"|});
+  Alcotest.(check (result string string))
+    "an enum's word" (Ok "black") (text colour Black);
+  Alcotest.(check (result string string))
+    "a date" (Ok "2026-09-30")
+    (text J.date (2026, 9, 30));
+  Alcotest.(check bool)
+    "outside its bounds, refused" true
+    (Result.is_error (J.to_text (J.int_bounded ~max:10 ()) 11))
+
+(* What is written as text reads back as itself. *)
+let texts_round_trip =
+  QCheck.Test.make ~count:1000 ~name:"a value written as text reads back"
+    QCheck.(triple int (map Int64.float_of_bits int64) string_printable)
+    (fun (n, f, s) ->
+      let back d v =
+        match J.to_text d v with
+        | Error _ -> None
+        | Ok t -> Result.to_option (J.of_text d t)
+      in
+      Option.equal Int.equal (back J.int n) (Some n)
+      && ((not (Float.is_finite f))
+         || Option.equal Float.equal (back J.number f) (Some f))
+      && Option.equal String.equal (back J.string s) (Some s))
+
 let test_numbers_are_written_as_typed () =
   match
     written
@@ -3168,6 +3291,12 @@ let () =
           Alcotest.test_case "values, tuples and the pieces" `Quick values;
           Alcotest.test_case "malformed descriptions" `Quick
             malformed_descriptions;
+        ] );
+      ( "text",
+        [
+          Alcotest.test_case "read" `Quick texts;
+          Alcotest.test_case "written" `Quick texts_written;
+          QCheck_alcotest.to_alcotest texts_round_trip;
         ] );
       ( "writing",
         [

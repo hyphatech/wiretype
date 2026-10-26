@@ -28,6 +28,9 @@ type st = {
       (** how many problems are held: in [problems], and any set aside *)
   max_depth : int;
   max_problems : int;
+  text : bool;
+      (** what is read is one text a URL or a header carried, so its sort is no
+          part of what a reader is told *)
   skipped : (int, int * P.t list) Hashtbl.t;
       (** each object and list a union's first pass went through, by where it
           starts: where it ends, and the problems found inside, newest first *)
@@ -470,6 +473,7 @@ let state ?(max_depth = Encode.max_depth) ?(max_problems = default_max_problems)
     listed = 0;
     max_depth = Int.max 0 (Int.min max_depth max_depth_ceiling);
     max_problems = Int.max 0 max_problems;
+    text = false;
     skipped = Hashtbl.create 0;
   }
 
@@ -511,7 +515,8 @@ let sort_found st =
 
 let mismatch st path depth expected =
   report st path P.Unexpected_type
-    (Printf.sprintf "This must be %s, not %s." expected (sort_found st));
+    (if st.text then Printf.sprintf "This must be %s." expected
+     else Printf.sprintf "This must be %s, not %s." expected (sort_found st));
   skip st path depth;
   None
 
@@ -1236,8 +1241,7 @@ and cased : type o. st -> path -> int -> o S.obj -> o option =
   st.i <- stop;
   k ()
 
-let run ?max_depth ?max_problems shape s =
-  let st = state ?max_depth ?max_problems s in
+let read st shape =
   let read () =
     let v = value st [] 0 shape in
     ws st;
@@ -1271,3 +1275,63 @@ let run ?max_depth ?max_problems shape s =
               };
             ]
       | _, problems -> Error (List.rev problems))
+
+let run ?max_depth ?max_problems shape s =
+  read (state ?max_depth ?max_problems s) shape
+
+(* One JSON number, as RFC 8259 §6 writes one: what a printed client writes
+   a number as, so [007], [+3] and [.5] are none. *)
+let json_number s =
+  let n = String.length s in
+  let digit i = i < n && s.[i] >= '0' && s.[i] <= '9' in
+  let rec digits i = if digit i then digits (i + 1) else i in
+  let start = if n > 0 && Char.equal s.[0] '-' then 1 else 0 in
+  let integer =
+    if start < n && Char.equal s.[start] '0' then Some (start + 1)
+    else if digit start then Some (digits start)
+    else None
+  in
+  let fraction i =
+    if i < n && Char.equal s.[i] '.' then
+      if digit (i + 1) then Some (digits (i + 1)) else None
+    else Some i
+  in
+  let exponent i =
+    if i < n && (Char.equal s.[i] 'e' || Char.equal s.[i] 'E') then
+      let i =
+        if i + 1 < n && (Char.equal s.[i + 1] '+' || Char.equal s.[i + 1] '-')
+        then i + 2
+        else i + 1
+      in
+      if digit i then Some (digits i) else None
+    else Some i
+  in
+  match Option.bind (Option.bind integer fraction) exponent with
+  | Some i -> i = n
+  | None -> false
+
+let wrong_sort (p : P.t) =
+  match p.code with
+  | P.Unexpected_type -> true
+  | P.Syntax | P.Too_deep | P.Required | P.Too_small | P.Too_large
+  | P.Not_a_multiple | P.Too_short | P.Too_long | P.Too_few | P.Too_many
+  | P.Unknown_word | P.Unknown_member | P.Repeated_member | P.Malformed
+  | P.Too_many_problems ->
+      false
+
+(* A scalar's text is the JSON it is written as, and a string's is itself:
+   text that reads as a number or a boolean is tried as one first, and
+   read as a string where the description is of another sort -- [20] for a
+   name -- as is any other text. *)
+let text shape s =
+  let as_written s = read { (state s) with text = true } shape in
+  let as_string () = as_written (Text.quote s) in
+  (* Quoted, text that is not UTF-8 is a document that is not JSON, which
+     says nothing of a text that never was. *)
+  if not (String.is_valid_utf_8 s) then
+    Error [ { P.at = []; code = P.Malformed; message = "This is not UTF-8." } ]
+  else if String.equal s "true" || String.equal s "false" || json_number s then
+    match as_written s with
+    | Error problems when List.for_all wrong_sort problems -> as_string ()
+    | read -> read
+  else as_string ()

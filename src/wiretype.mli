@@ -97,6 +97,35 @@ val to_value : 'a t -> 'a -> (Value.t, Unwritable.t) result
 val of_value : 'a t -> Value.t -> ('a, Problem.t list) result
 (** The value read as {!decode} reads the JSON it is, with its limits. *)
 
+(** {1 A value as one text}
+
+    What a URL's segment, a query parameter, a header or a form's field carries:
+    a scalar as the JSON it is written as, but a string -- and so an enum's
+    word, or a kind over text -- as it is, unquoted. It is what a printed client
+    sends, and is read and written by the description a body's member is, with
+    its bounds, its grammar and its problems.
+
+    {[
+    J.of_text
+      (J.int_bounded ~min:1 ~max:100 ())
+      "20" (* Ok 20 *) J.of_text
+      (J.int_bounded ~min:1 ~max:100 ())
+      "200" (* too_large *) J.of_text (J.uuid ())
+      "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+    ]} *)
+
+val of_text : 'a t -> string -> ('a, Problem.t list) result
+(** Text that is a JSON number, [true] or [false] is read as that JSON, and any
+    other text as a string, so a number's text has JSON's grammar -- [007] and
+    [+3] are no number -- and text a description cannot read is
+    {!Problem.Unexpected_type}, said as what it must be:
+    ["This must be a whole number."]. A description of no scalar reads no text
+    but as a string. *)
+
+val to_text : 'a t -> 'a -> (string, Unwritable.t) result
+(** What {!encode} writes, a string's quotes and escapes taken off, so [of_text]
+    reads it back; refused where [encode] refuses. *)
+
 val name : 'a t -> string
 (** What the description is called where it is spoken of: its kind, or its sort.
 *)

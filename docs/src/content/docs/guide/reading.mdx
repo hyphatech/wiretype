@@ -10,6 +10,7 @@ import strict from "@examples/strict.ml?raw";
 import absent from "@examples/absent.ml?raw";
 import unknownMembers from "@examples/unknown_members.ml?raw";
 import anyJson from "@examples/any_json.ml?raw";
+import text from "@examples/text.ml?raw";
 
 `Wiretype.decode` reads a document in one pass over the text, with the
 description in hand, and reports every problem the document has. It
@@ -152,3 +153,33 @@ of a name:
 
 `Wiretype.of_value` reads a `Value.t` you already hold, as `decode` reads
 the JSON it is, with its limits.
+
+## A value as one text
+
+A query parameter, a path segment, a header or a form's field carries one
+text, not a JSON document. `Wiretype.of_text` reads it by the description a
+body's member is read by, with its bounds and its grammar, and
+`Wiretype.to_text` writes one back -- what a framework reading a request's
+inputs calls, as a printed client writes them:
+
+```ocaml
+val of_text : 'a t -> string -> ('a, Problem.t list) result
+val to_text : 'a t -> 'a -> (string, Unwritable.t) result
+```
+
+<Code code={text} lang="ocaml" title="text.ml" />
+
+```console
+$ dune exec ./text.exe
+20 -> 20
+200 -> too_large: This must be at most 100.
+many -> unexpected_type: This must be a whole number.
+say "hi"
+```
+
+- A scalar's text is the JSON it is written as, so a number has JSON's
+  grammar: `007`, `+3` and `.5` are none, and `1e3` is a whole number.
+- A string's text is itself, unquoted, and so is an enum's word or a kind
+  over text -- a date, a UUID, a URI.
+- Text a description cannot read is `unexpected_type`, said as what it must
+  be, never as JSON's sort, since a text has none.
