@@ -31,7 +31,7 @@ module (`Wiretype`).
   -- one walk into a schema, printed as
   [JSON Schema](/wiretype/reference/wiretype/Wiretype/Schema/Json_schema/index.html),
   [Zod](/wiretype/reference/wiretype/Wiretype/Schema/Zod/index.html) and
-  [OCaml for Melange](/wiretype/reference/wiretype/Wiretype/Schema/Melange/index.html).
+  [Melange](/wiretype/reference/wiretype/Wiretype/Schema/Melange/index.html).
 - [`Wiretype.Shape`](/wiretype/reference/wiretype/Wiretype/Shape/index.html)
   -- the GADT a description is.
 - [`Wiretype.Text`](/wiretype/reference/wiretype/Wiretype/Text/index.html)

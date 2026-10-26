@@ -159,7 +159,7 @@ module Zod : sig
       reference to one written later is a getter. *)
 end
 
-(** OCaml for Melange: one self-contained module, over [Js.Json], [Js.Date] and
+(** Melange: one self-contained OCaml module, over [Js.Json], [Js.Date] and
     [Js.Dict] alone, in which each component is a type and the functions that
     read and write it, so a browser holds the server's shapes as OCaml types and
     never runs wiretype.

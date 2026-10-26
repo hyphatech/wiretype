@@ -2,7 +2,7 @@
 
 wiretype is an OCaml library of Hypha Stack. It describes a JSON shape once:
 it reads a document with every problem found, writes a value, and prints
-itself as JSON Schema, as Zod and as OCaml for Melange. `ppx_wiretype`
+itself as JSON Schema, as Zod and as Melange. `ppx_wiretype`
 derives a description from a type. This file is for anyone changing it,
 human or agent. Users start at [README.md](README.md) and the
 documentation site, [docs/](docs/src/content/docs/index.mdx).
@@ -35,7 +35,7 @@ src/                 wiretype: depends on Ptime, Mtime and Uuidm alone
   itself             a description of itself, built by the first domain to
                      reach it while another waits
   schema             one walk into a schema, printed as JSON Schema, Zod and
-                     OCaml for Melange
+                     Melange
   problem,           what a reader is told, what a writer is told, any JSON,
   unwritable,        and the two spellings
   value, text

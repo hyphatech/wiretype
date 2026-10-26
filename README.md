@@ -15,10 +15,7 @@ Strict, light and derived from your types. Built for JSON Schema, Zod and Melang
 
 - **Derived from your types**: `[@@deriving wiretype]` writes the contract from records, variants and recursive types, bounds and docs included.
 - **Every problem at once**: invalid input is refused with every mistake, each at its path with a code a client can act on.
-- **JSON Schema and Zod**: the same contract prints as both, and the Zod is checked against Zod itself on every test run.
-- **OCaml for the browser**: a Melange module that reads and writes as the server does, so a form finds what is wrong before it sends.
-- **Strict by the standard**: UTF-8 checked, a member given twice refused as I-JSON has it, and JSONTestSuite run whole.
-- **Light**: depends on Ptime, Mtime and Uuidm alone.
+- **JSON Schema, Zod and Melange**: one walk prints all three, and the Zod and the Melange module are held to the server's verdict on every test run, so a form finds what is wrong before it sends.
 
 ## Install
 
