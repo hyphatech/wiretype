@@ -67,7 +67,9 @@ sends.
 
 A name is made as OCaml wants one: a field in lower case with each run of
 other characters as `_` and a keyword given `_` after it; a constructor
-with its first letter raised, `W` before a digit; a twin gets `_2`. A
+with its first letter raised, `W` before a digit, and `_` after it where
+it is one of the stdlib's own, `None`, `Some`, `Ok` or `Error`, which the
+printed readers use; a twin gets `_2`. A
 member's `~field` names its record's field instead -- `kind` for a member
 `"type"`, not `type_` -- and the deriver gives it wherever a field is
 renamed. A schema that is no object or enum is an alias of what it prints

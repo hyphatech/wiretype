@@ -79,6 +79,7 @@ let components :
       ("Either", through decode_either encode_either);
       ("Account", through decode_account encode_account);
       ("AccountInput", through decode_account_input encode_account_input);
+      ("Answer", through decode_answer encode_answer);
       ("Scores", through decode_scores encode_scores);
       ("Pair", through decode_pair encode_pair);
       ("Maybe", through decode_maybe encode_maybe);

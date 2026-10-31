@@ -1122,12 +1122,19 @@ module Melange = struct
 
   let name = lower_name
 
+  (* The constructors the printed code uses as the stdlib's own, which a
+     constructor of the same name would shadow from its type on. *)
+  let stdlib_constructors = [ "None"; "Some"; "Ok"; "Error" ]
+
   let upper_name s =
     let s = cleaned s in
-    if String.equal s "" then "Empty"
-    else if is_lower s.[0] then String.capitalize_ascii s
-    else if is_upper s.[0] then s
-    else "W" ^ s
+    let s =
+      if String.equal s "" then "Empty"
+      else if is_lower s.[0] then String.capitalize_ascii s
+      else if is_upper s.[0] then s
+      else "W" ^ s
+    in
+    if List.mem s stdlib_constructors then s ^ "_" else s
 
   (* A name not yet in [taken]: a twin gets [_2]. *)
   let fresh taken base =

@@ -176,6 +176,15 @@
     "text": "{\"name\":\"n\"}",
     "problems": [{ "at": "password", "code": "required" }]
   },
+  { "shape": "Answer", "text": "\"none\"" },
+  { "shape": "Answer", "text": "\"some\"" },
+  { "shape": "Answer", "text": "\"ok\"" },
+  { "shape": "Answer", "text": "\"error\"" },
+  {
+    "shape": "Answer",
+    "text": "\"maybe\"",
+    "problems": [{ "at": "", "code": "unknown_word" }]
+  },
   { "shape": "Scores", "text": "{\"debug\":1,\"info\":2}" },
   {
     "shape": "Scores",

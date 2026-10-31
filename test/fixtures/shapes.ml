@@ -15,6 +15,19 @@ let level =
       | Debug -> "debug" | Info -> "info" | In_progress -> "in-progress")
     [ Debug; Info; In_progress ]
 
+(* Words that are the names of the stdlib's own constructors, which the
+   printed readers use as the stdlib's. *)
+type answer = Nothing | Something | Fine | Failed
+
+let answer =
+  J.enum ~kind:"answer"
+    (function
+      | Nothing -> "none"
+      | Something -> "some"
+      | Fine -> "ok"
+      | Failed -> "error")
+    [ Nothing; Something; Fine; Failed ]
+
 (* Every scalar the printer has a word for, in one object. *)
 type line = {
   sku : string;
@@ -169,6 +182,7 @@ let all : (string * packed) list =
     ("Box", P box);
     ("Either", P either);
     ("Account", P account);
+    ("Answer", P answer);
     ("Scores", P (J.dict ~max_properties:2 ~key:level ~value:J.int ()));
     ("Pair", P (J.tuple3 J.string J.int J.bool));
     ("Maybe", P (J.nullable J.int));

@@ -189,8 +189,10 @@ end
     constructor per case with the case's members as an inline record. A name is
     made as OCaml wants one: a field in lower case with each run of other
     characters as [_] and a keyword given [_] after it; a constructor with its
-    first letter raised, [W] before a digit; a twin gets [_2]. An object's
-    [Each] additional members are read as [Allowed]: the walk never makes one.
+    first letter raised, [W] before a digit, and [_] after it where it is one of
+    the stdlib's own, [None], [Some], [Ok] or [Error]; a twin gets [_2]. An
+    object's [Each] additional members are read as [Allowed]: the walk never
+    makes one.
 
     The browser is the looser in four places, by design: a whole number past
     2{^ 53}; a member given twice, which [JSON.parse] reads as the last of them;

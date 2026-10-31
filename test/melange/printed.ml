@@ -1333,6 +1333,8 @@ and account = { id : Uuid.t option; name : string; }
 
 and either = | Number of float | String of string
 
+and answer = | None_ | Some_ | Ok_ | Error_
+
 (* How much is said. *)
 and scores_key = | Debug | Info | In_progress
 
@@ -1386,6 +1388,8 @@ and read_account : account Wire.reader = fun ctx path j -> (fun ctx path j -> ma
 
 and read_either : either Wire.reader = fun ctx path j -> (fun ctx path j -> match Js.Json.classify j with | JSONNumber _ -> Option.map (fun x -> (Number x : either)) ((Wire.whole ()) ctx path j) | JSONString _ -> Option.map (fun x -> (String x : either)) ((Wire.string ()) ctx path j) | _ -> Wire.mismatch ctx path {js|a number or text|js} j) ctx path j
 
+and read_answer : answer Wire.reader = fun ctx path j -> (Wire.enum [|{js|none|js}; {js|some|js}; {js|ok|js}; {js|error|js}|] (fun w -> if String.equal w {js|none|js} then Some (None_ : answer) else if String.equal w {js|some|js} then Some (Some_ : answer) else if String.equal w {js|ok|js} then Some (Ok_ : answer) else if String.equal w {js|error|js} then Some (Error_ : answer) else None)) ctx path j
+
 and read_scores : scores Wire.reader = fun ctx path j -> (Wire.dict ~max_properties:(2) (Wire.enum [|{js|debug|js}; {js|info|js}; {js|in-progress|js}|] (fun w -> if String.equal w {js|debug|js} then Some (Debug : scores_key) else if String.equal w {js|info|js} then Some (Info : scores_key) else if String.equal w {js|in-progress|js} then Some (In_progress : scores_key) else None)) (Wire.whole ())) ctx path j
 
 and read_pair : pair Wire.reader = fun ctx path j -> (fun ctx path j -> match Wire.tuple 3 ctx path j with | None -> None | Some items -> let i0 = (Wire.string ()) ctx (Wire.Index 0 :: path) items.(0) in let i1 = (Wire.whole ()) ctx (Wire.Index 1 :: path) items.(1) in let i2 = Wire.bool ctx (Wire.Index 2 :: path) items.(2) in match (i0, i1, i2) with | (Some i0, Some i1, Some i2) -> Some (i0, i1, i2) | _ -> None) ctx path j
@@ -1435,6 +1439,8 @@ and write_account_input : account_input Wire.writer = fun ctx path v -> (fun ctx
 and write_account : account Wire.writer = fun ctx path v -> (fun ctx path (v : account) -> Wire.w_object [|(match v.id with None -> None | Some x -> Some ({js|id|js}, (Wire.w_uuid ()) ctx (Wire.Member {js|id|js} :: path) x)); Some ({js|name|js}, (Wire.w_string ()) ctx (Wire.Member {js|name|js} :: path) v.name)|]) ctx path v
 
 and write_either : either Wire.writer = fun ctx path v -> (fun ctx path (v : either) -> match v with | Number x -> (Wire.w_whole ()) ctx path x | String x -> (Wire.w_string ()) ctx path x) ctx path v
+
+and write_answer : answer Wire.writer = fun ctx path v -> (Wire.w_enum (fun (v : answer) -> match v with | None_ -> {js|none|js} | Some_ -> {js|some|js} | Ok_ -> {js|ok|js} | Error_ -> {js|error|js})) ctx path v
 
 and write_scores : scores Wire.writer = fun ctx path v -> (Wire.w_dict ~max_properties:(2) (Wire.w_enum (fun (v : scores_key) -> match v with | Debug -> {js|debug|js} | Info -> {js|info|js} | In_progress -> {js|in-progress|js})) (Wire.w_whole ())) ctx path v
 
@@ -1512,6 +1518,11 @@ let decode_either s = Wire.decode read_either s
 let either_of_json j = Wire.of_json read_either j
 let encode_either v = Wire.encode write_either v
 let either_to_json v = Wire.to_json write_either v
+
+let decode_answer s = Wire.decode read_answer s
+let answer_of_json j = Wire.of_json read_answer j
+let encode_answer v = Wire.encode write_answer v
+let answer_to_json v = Wire.to_json write_answer v
 
 let decode_scores s = Wire.decode read_scores s
 let scores_of_json j = Wire.of_json read_scores j

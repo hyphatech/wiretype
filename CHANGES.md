@@ -1,5 +1,12 @@
 # Changes
 
+## 0.6.2 (2026-11-01)
+
+- `Schema.Melange`: an enum's word or a case's tag that would be the
+  constructor `None`, `Some`, `Ok` or `Error` is printed with `_` after it,
+  `None_`, as a keyword is, where it shadowed the stdlib's own constructor
+  from its type on and the printed module did not compile.
+
 ## 0.6.1 (2026-10-26)
 
 - `Wiretype.of_text` and `Wiretype.to_text` read and write a value as the
