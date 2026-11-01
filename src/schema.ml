@@ -1122,19 +1122,12 @@ module Melange = struct
 
   let name = lower_name
 
-  (* The constructors the printed code uses as the stdlib's own, which a
-     constructor of the same name would shadow from its type on. *)
-  let stdlib_constructors = [ "None"; "Some"; "Ok"; "Error" ]
-
   let upper_name s =
     let s = cleaned s in
-    let s =
-      if String.equal s "" then "Empty"
-      else if is_lower s.[0] then String.capitalize_ascii s
-      else if is_upper s.[0] then s
-      else "W" ^ s
-    in
-    if List.mem s stdlib_constructors then s ^ "_" else s
+    if String.equal s "" then "Empty"
+    else if is_lower s.[0] then String.capitalize_ascii s
+    else if is_upper s.[0] then s
+    else "W" ^ s
 
   (* A name not yet in [taken]: a twin gets [_2]. *)
   let fresh taken base =
@@ -1756,6 +1749,13 @@ module Melange = struct
              (if i = 0 then "type" else "and")
              d.tname d.body))
       (List.rev st.decls @ aliases);
+    Buffer.add_string b
+      "(* The stdlib's constructors again, after the types: a word above may be\n\
+      \   None, Some, Ok or Error, and the code below means the stdlib's. A\n\
+      \   word's own is reached through its type, as every reader names it. *)\n\
+       type 'a stdlib_option = 'a Stdlib.Option.t = None | Some of 'a\n\
+       type ('a, 'e) stdlib_result = ('a, 'e) Stdlib.Result.t = Ok of 'a | \
+       Error of 'e\n\n";
     Buffer.add_string b "(* ---- Reading ---- *)\n\n";
     List.iteri
       (fun i (n, p) ->

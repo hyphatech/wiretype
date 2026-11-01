@@ -1,5 +1,14 @@
 # Changes
 
+## 0.6.3 (2026-11-01)
+
+- `Schema.Melange`: an enum's word or a case's tag that is `None`, `Some`,
+  `Ok` or `Error` is printed as itself again, not with `_` after it as 0.6.2
+  printed it. The module declares the stdlib's constructors again after its
+  types, so the code printed below them, a client's routes included, means
+  the option's and the result's, and a word's own is reached through its
+  type, `(None : phase)`.
+
 ## 0.6.2 (2026-11-01)
 
 - `Schema.Melange`: an enum's word or a case's tag that would be the

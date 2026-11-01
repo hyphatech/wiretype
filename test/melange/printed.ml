@@ -1333,7 +1333,7 @@ and account = { id : Uuid.t option; name : string; }
 
 and either = | Number of float | String of string
 
-and answer = | None_ | Some_ | Ok_ | Error_
+and answer = | None | Some | Ok | Error
 
 (* How much is said. *)
 and scores_key = | Debug | Info | In_progress
@@ -1368,6 +1368,12 @@ and ipv4 = string
 
 and ipv6 = string
 
+(* The stdlib's constructors again, after the types: a word above may be
+   None, Some, Ok or Error, and the code below means the stdlib's. A
+   word's own is reached through its type, as every reader names it. *)
+type 'a stdlib_option = 'a Stdlib.Option.t = None | Some of 'a
+type ('a, 'e) stdlib_result = ('a, 'e) Stdlib.Result.t = Ok of 'a | Error of 'e
+
 (* ---- Reading ---- *)
 
 let rec read_order_line_input : order_line_input Wire.reader = fun ctx path j -> (fun ctx path j -> match Wire.members ctx path j with | None -> None | Some o -> let m_sku = Wire.required (Wire.string ()) ctx path o {js|sku|js} in let m_quantity = Wire.required (Wire.int ~min:(1) ~max:(99) ()) ctx path o {js|quantity|js} in let m_note = Wire.optional_or_null (Wire.string ~max_length:(4) ()) ctx path o {js|note|js} in let m_price = Wire.required (Wire.number ~min:(0.) ()) ctx path o {js|price|js} in let m_tags = Wire.required (Wire.array ~max_items:(2) (Wire.string ())) ctx path o {js|tags|js} in let m_placed = Wire.required (Wire.instant ()) ctx path o {js|placed|js} in let m_id = Wire.required (Wire.uuid ()) ctx path o {js|id|js} in let m_day = Wire.required (Wire.date ()) ctx path o {js|day|js} in let m_ttl = Wire.required (Wire.duration ()) ctx path o {js|ttl|js} in match (m_sku, m_quantity, m_note, m_price, m_tags, m_placed, m_id, m_day, m_ttl) with | (Some m_sku, Some m_quantity, Some m_note, Some m_price, Some m_tags, Some m_placed, Some m_id, Some m_day, Some m_ttl) -> Some (({ sku = m_sku; quantity = m_quantity; note = m_note; price = m_price; tags = m_tags; placed = m_placed; id = m_id; day = m_day; ttl = m_ttl; } : order_line_input)) | _ -> None) ctx path j
@@ -1388,7 +1394,7 @@ and read_account : account Wire.reader = fun ctx path j -> (fun ctx path j -> ma
 
 and read_either : either Wire.reader = fun ctx path j -> (fun ctx path j -> match Js.Json.classify j with | JSONNumber _ -> Option.map (fun x -> (Number x : either)) ((Wire.whole ()) ctx path j) | JSONString _ -> Option.map (fun x -> (String x : either)) ((Wire.string ()) ctx path j) | _ -> Wire.mismatch ctx path {js|a number or text|js} j) ctx path j
 
-and read_answer : answer Wire.reader = fun ctx path j -> (Wire.enum [|{js|none|js}; {js|some|js}; {js|ok|js}; {js|error|js}|] (fun w -> if String.equal w {js|none|js} then Some (None_ : answer) else if String.equal w {js|some|js} then Some (Some_ : answer) else if String.equal w {js|ok|js} then Some (Ok_ : answer) else if String.equal w {js|error|js} then Some (Error_ : answer) else None)) ctx path j
+and read_answer : answer Wire.reader = fun ctx path j -> (Wire.enum [|{js|none|js}; {js|some|js}; {js|ok|js}; {js|error|js}|] (fun w -> if String.equal w {js|none|js} then Some (None : answer) else if String.equal w {js|some|js} then Some (Some : answer) else if String.equal w {js|ok|js} then Some (Ok : answer) else if String.equal w {js|error|js} then Some (Error : answer) else None)) ctx path j
 
 and read_scores : scores Wire.reader = fun ctx path j -> (Wire.dict ~max_properties:(2) (Wire.enum [|{js|debug|js}; {js|info|js}; {js|in-progress|js}|] (fun w -> if String.equal w {js|debug|js} then Some (Debug : scores_key) else if String.equal w {js|info|js} then Some (Info : scores_key) else if String.equal w {js|in-progress|js} then Some (In_progress : scores_key) else None)) (Wire.whole ())) ctx path j
 
@@ -1440,7 +1446,7 @@ and write_account : account Wire.writer = fun ctx path v -> (fun ctx path (v : a
 
 and write_either : either Wire.writer = fun ctx path v -> (fun ctx path (v : either) -> match v with | Number x -> (Wire.w_whole ()) ctx path x | String x -> (Wire.w_string ()) ctx path x) ctx path v
 
-and write_answer : answer Wire.writer = fun ctx path v -> (Wire.w_enum (fun (v : answer) -> match v with | None_ -> {js|none|js} | Some_ -> {js|some|js} | Ok_ -> {js|ok|js} | Error_ -> {js|error|js})) ctx path v
+and write_answer : answer Wire.writer = fun ctx path v -> (Wire.w_enum (fun (v : answer) -> match v with | None -> {js|none|js} | Some -> {js|some|js} | Ok -> {js|ok|js} | Error -> {js|error|js})) ctx path v
 
 and write_scores : scores Wire.writer = fun ctx path v -> (Wire.w_dict ~max_properties:(2) (Wire.w_enum (fun (v : scores_key) -> match v with | Debug -> {js|debug|js} | Info -> {js|info|js} | In_progress -> {js|in-progress|js})) (Wire.w_whole ())) ctx path v
 
