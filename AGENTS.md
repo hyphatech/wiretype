@@ -10,7 +10,7 @@ documentation site, [docs/](docs/src/content/docs/index.mdx).
 ## Commands
 
 ```sh
-make setup   # once: the switch hypha-wiretype, all dependencies, and Zod
+make setup   # once: the switch wiretype, all dependencies, and Zod
 make test    # every suite, the kinds' rows through Zod, and the shared rows
              # through the printed Melange module
 make lint    # formatting, odoc, and the release build
