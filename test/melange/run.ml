@@ -83,6 +83,8 @@ let components :
       ("Scores", through decode_scores encode_scores);
       ("Pair", through decode_pair encode_pair);
       ("Maybe", through decode_maybe encode_maybe);
+      ("Spots", through decode_spots encode_spots);
+      ("MaybeSpot", through decode_maybe_spot encode_maybe_spot);
       ("Anything", through decode_anything encode_anything);
       ("Words", through decode_words encode_words);
       ("Instant", through decode_instant encode_instant);

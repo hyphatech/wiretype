@@ -225,5 +225,14 @@
     "shape": "Words",
     "text": "[\"a\",\"😀😀\"]",
     "problems": [{ "at": "[0]", "code": "too_short" }]
-  }
+  },
+  { "shape": "Spots", "text": "[{\"name\":\"a\",\"level\":\"info\"}]" },
+  { "shape": "Spots", "text": "[]" },
+  {
+    "shape": "Spots",
+    "text": "[{\"name\":\"a\"}]",
+    "problems": [{ "at": "[0].level", "code": "required" }]
+  },
+  { "shape": "MaybeSpot", "text": "null" },
+  { "shape": "MaybeSpot", "text": "{\"name\":\"a\",\"level\":\"debug\"}" }
 ]

@@ -1,5 +1,17 @@
 # Changes
 
+## Unreleased
+
+- `Schema.Melange`: a list's element is named by its place, `<list>_item`,
+  as a dict's values (`_value`) and a tuple's items (`_0`) already were; it
+  took the list's own name. A component that may be null names what it holds
+  `<component>_value`. A component that is a list of objects of no kind, or
+  one of them that may be null -- a Spindle route answering a list of them
+  -- printed its element under the component's name and no type for the
+  component, so the module did not compile; a list of such objects inside
+  another prints its element under the new name, `order_lines` as
+  `order_lines_item`.
+
 ## 0.6.3 (2026-11-01)
 
 - `Schema.Melange`: an enum's word or a case's tag that is `None`, `Some`,

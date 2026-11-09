@@ -1370,7 +1370,10 @@ module Melange = struct
         | Some S.Ipv4 -> f "string" "ipv4" ""
         | Some S.Ipv6 -> f "string" "ipv6" "")
     | Array a ->
-        let elt = node st ~hint a.items in
+        (* Its element is named by its place, as a dict's values and a
+           tuple's items are: under the list's own name, an object of no
+           kind would take the name the list's alias needs. *)
+        let elt = node st ~hint:(hint ^ "_item") a.items in
         let counts =
           int_arg "min_items" a.min_items ^ int_arg "max_items" a.max_items
         in
@@ -1719,7 +1722,15 @@ module Melange = struct
       List.map2
         (fun (_, s) n ->
           st.types := List.filter (fun t -> not (String.equal t n)) !(st.types);
-          let p = node st ~hint:n s in
+          (* A component that may be null is an option of what it holds,
+             which is named by its place: under the component's own name, an
+             object of no kind would take the name the alias needs. *)
+          let rec nullable = function
+            | Nullable _ -> true
+            | Described d -> nullable d.schema
+            | _ -> false
+          in
+          let p = node st ~hint:(if nullable s then n ^ "_value" else n) s in
           if not (List.mem n !(st.types)) then st.types := n :: !(st.types);
           (n, p))
         cs names

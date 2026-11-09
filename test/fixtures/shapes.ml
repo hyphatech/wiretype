@@ -171,6 +171,14 @@ let account =
       a.password)
   |> J.Object.finish
 
+(* Objects of no kind, named by their place, inside a component that is no
+   object: a list of them, and one that may be null. *)
+let spot =
+  J.Object.(
+    map (fun name level -> (name, level))
+    |> mem "name" J.string ~enc:fst
+    |> mem "level" level ~enc:snd |> finish)
+
 (* What is read by its name in the rows: a component's name, as the printed
    module names its functions from it. *)
 let all : (string * packed) list =
@@ -186,6 +194,8 @@ let all : (string * packed) list =
     ("Scores", P (J.dict ~max_properties:2 ~key:level ~value:J.int ()));
     ("Pair", P (J.tuple3 J.string J.int J.bool));
     ("Maybe", P (J.nullable J.int));
+    ("Spots", P (J.list spot));
+    ("MaybeSpot", P (J.nullable spot));
     ("Anything", P J.Value.json);
     ("Words", P (J.list ~min_items:1 (J.string_bounded ~min_length:2 ())));
     ("Instant", P J.instant);

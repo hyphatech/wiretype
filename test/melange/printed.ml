@@ -1338,11 +1338,25 @@ and answer = | None | Some | Ok | Error
 (* How much is said. *)
 and scores_key = | Debug | Info | In_progress
 
+(* How much is said. *)
+and spots_item_level = | Debug | Info | In_progress
+
+and spots_item = { name : string; level : spots_item_level; }
+
+(* How much is said. *)
+and maybe_spot_value_level = | Debug | Info | In_progress
+
+and maybe_spot_value = { name : string; level : maybe_spot_value_level; }
+
 and scores = (scores_key * float) array
 
 and pair = string * float * bool
 
 and maybe = float option
+
+and spots = spots_item array
+
+and maybe_spot = maybe_spot_value option
 
 and anything = Js.Json.t
 
@@ -1402,6 +1416,10 @@ and read_pair : pair Wire.reader = fun ctx path j -> (fun ctx path j -> match Wi
 
 and read_maybe : maybe Wire.reader = fun ctx path j -> (Wire.nullable (Wire.whole ())) ctx path j
 
+and read_spots : spots Wire.reader = fun ctx path j -> (Wire.array (fun ctx path j -> match Wire.members ctx path j with | None -> None | Some o -> let m_name = Wire.required (Wire.string ()) ctx path o {js|name|js} in let m_level = Wire.required (Wire.enum [|{js|debug|js}; {js|info|js}; {js|in-progress|js}|] (fun w -> if String.equal w {js|debug|js} then Some (Debug : spots_item_level) else if String.equal w {js|info|js} then Some (Info : spots_item_level) else if String.equal w {js|in-progress|js} then Some (In_progress : spots_item_level) else None)) ctx path o {js|level|js} in match (m_name, m_level) with | (Some m_name, Some m_level) -> Some (({ name = m_name; level = m_level; } : spots_item)) | _ -> None)) ctx path j
+
+and read_maybe_spot : maybe_spot Wire.reader = fun ctx path j -> (Wire.nullable (fun ctx path j -> match Wire.members ctx path j with | None -> None | Some o -> let m_name = Wire.required (Wire.string ()) ctx path o {js|name|js} in let m_level = Wire.required (Wire.enum [|{js|debug|js}; {js|info|js}; {js|in-progress|js}|] (fun w -> if String.equal w {js|debug|js} then Some (Debug : maybe_spot_value_level) else if String.equal w {js|info|js} then Some (Info : maybe_spot_value_level) else if String.equal w {js|in-progress|js} then Some (In_progress : maybe_spot_value_level) else None)) ctx path o {js|level|js} in match (m_name, m_level) with | (Some m_name, Some m_level) -> Some (({ name = m_name; level = m_level; } : maybe_spot_value)) | _ -> None)) ctx path j
+
 and read_anything : anything Wire.reader = fun ctx path j -> Wire.any ctx path j
 
 and read_words : words Wire.reader = fun ctx path j -> (Wire.array ~min_items:(1) (Wire.string ~min_length:(2) ())) ctx path j
@@ -1453,6 +1471,10 @@ and write_scores : scores Wire.writer = fun ctx path v -> (Wire.w_dict ~max_prop
 and write_pair : pair Wire.writer = fun ctx path v -> (fun ctx path (i0, i1, i2) -> Wire.w_tuple [|(Wire.w_string ()) ctx (Wire.Index 0 :: path) i0; (Wire.w_whole ()) ctx (Wire.Index 1 :: path) i1; Wire.w_bool ctx (Wire.Index 2 :: path) i2|]) ctx path v
 
 and write_maybe : maybe Wire.writer = fun ctx path v -> (Wire.w_nullable (Wire.w_whole ())) ctx path v
+
+and write_spots : spots Wire.writer = fun ctx path v -> (Wire.w_array (fun ctx path (v : spots_item) -> Wire.w_object [|Some ({js|name|js}, (Wire.w_string ()) ctx (Wire.Member {js|name|js} :: path) v.name); Some ({js|level|js}, (Wire.w_enum (fun (v : spots_item_level) -> match v with | Debug -> {js|debug|js} | Info -> {js|info|js} | In_progress -> {js|in-progress|js})) ctx (Wire.Member {js|level|js} :: path) v.level)|])) ctx path v
+
+and write_maybe_spot : maybe_spot Wire.writer = fun ctx path v -> (Wire.w_nullable (fun ctx path (v : maybe_spot_value) -> Wire.w_object [|Some ({js|name|js}, (Wire.w_string ()) ctx (Wire.Member {js|name|js} :: path) v.name); Some ({js|level|js}, (Wire.w_enum (fun (v : maybe_spot_value_level) -> match v with | Debug -> {js|debug|js} | Info -> {js|info|js} | In_progress -> {js|in-progress|js})) ctx (Wire.Member {js|level|js} :: path) v.level)|])) ctx path v
 
 and write_anything : anything Wire.writer = fun ctx path v -> Wire.w_any ctx path v
 
@@ -1544,6 +1566,16 @@ let decode_maybe s = Wire.decode read_maybe s
 let maybe_of_json j = Wire.of_json read_maybe j
 let encode_maybe v = Wire.encode write_maybe v
 let maybe_to_json v = Wire.to_json write_maybe v
+
+let decode_spots s = Wire.decode read_spots s
+let spots_of_json j = Wire.of_json read_spots j
+let encode_spots v = Wire.encode write_spots v
+let spots_to_json v = Wire.to_json write_spots v
+
+let decode_maybe_spot s = Wire.decode read_maybe_spot s
+let maybe_spot_of_json j = Wire.of_json read_maybe_spot j
+let encode_maybe_spot v = Wire.encode write_maybe_spot v
+let maybe_spot_to_json v = Wire.to_json write_maybe_spot v
 
 let decode_anything s = Wire.decode read_anything s
 let anything_of_json j = Wire.of_json read_anything j

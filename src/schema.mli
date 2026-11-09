@@ -181,15 +181,17 @@ end
     refused past 2{^ 53} as [z.int()] refuses it; a string a [string], its
     length counted in code points; an enum a variant, a constructor per word; a
     list an [array]; a tuple a tuple; a map an array of pairs, in the document's
-    order; an object a record, one with no kind named by its place,
-    [order_line_note], and one with no members [unit]; a member that may be left
-    out an [option], absent and [null] both [None] where it is nullable too; a
-    value of several sorts a variant by sort, [Boolean of _], [Number of _],
-    [String of _], [Array of _], [Object of _]; a union by tag a variant, a
-    constructor per case with the case's members as an inline record. A name is
-    made as OCaml wants one: a field in lower case with each run of other
-    characters as [_] and a keyword given [_] after it; a constructor with its
-    first letter raised, [W] before a digit; a twin gets [_2]. A word may be
+    order; an object a record, one with no kind named by its place --
+    [order_line_note] for a member, [order_lines_item] for a list's element and
+    [maybe_line_value] for what a component that may be null holds, so the list
+    or the option keeps its own name -- and one with no members [unit]; a member
+    that may be left out an [option], absent and [null] both [None] where it is
+    nullable too; a value of several sorts a variant by sort, [Boolean of _],
+    [Number of _], [String of _], [Array of _], [Object of _]; a union by tag a
+    variant, a constructor per case with the case's members as an inline record.
+    A name is made as OCaml wants one: a field in lower case with each run of
+    other characters as [_] and a keyword given [_] after it; a constructor with
+    its first letter raised, [W] before a digit; a twin gets [_2]. A word may be
     [None], [Some], [Ok] or [Error]: the module declares the stdlib's again
     after its types, and a word's own is reached through its type. An object's
     [Each] additional members are read as [Allowed]: the walk never makes one.
