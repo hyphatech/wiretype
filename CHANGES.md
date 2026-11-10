@@ -1,5 +1,11 @@
 # Changes
 
+## Unreleased
+
+- wiretype is published to open-opam, `opam repo add open-opam
+  https://github.com/open-opam/opam-repository.git`, and no longer to Hypha's
+  opam repository.
+
 ## 0.7.0 (2026-11-09)
 
 - `Schema.Melange`: a list's element is named by its place, `<list>_item`,

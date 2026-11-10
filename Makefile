@@ -6,7 +6,7 @@ DOCS_PORT ?= 4321
 REFERENCE = wiretype ppx_wiretype odoc.support
 
 .DEFAULT_GOAL := help
-.PHONY: help setup build test test-zod lint fmt docs docs-serve
+.PHONY: help setup build test test-zod lint fmt docs docs-serve release
 
 help: ## list targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -55,3 +55,9 @@ docs: docs/node_modules ## build the documentation site
 # build, and a page served as it changes loads its styles after its text.
 docs-serve: docs ## serve the built documentation site
 	cd docs && bun --bun astro preview --open --port $(DOCS_PORT)
+
+release: ## release VERSION, once CHANGES.md names it: open-opam tags it and makes its release
+	@test -n "$(VERSION)" || { echo "Give the version: make release VERSION=1.2.3" >&2; exit 2; }
+	@test "$$(git show HEAD:CHANGES.md | grep -m1 '^## ')" = "## $(VERSION) ($$(date +%F))" \
+	  || { echo "The commit to release must open CHANGES.md with ## $(VERSION) ($$(date +%F))" >&2; exit 2; }
+	open-opam release $(VERSION)

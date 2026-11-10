@@ -21,7 +21,7 @@ Strict, light and derived from your types. Built for JSON Schema, Zod and Melang
 ## Install
 
 ```sh
-opam repo add hypha https://github.com/hyphatech/opam-repository.git
+opam repo add open-opam https://github.com/open-opam/opam-repository.git
 opam install wiretype ppx_wiretype
 ```
 
