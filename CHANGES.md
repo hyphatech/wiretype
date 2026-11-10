@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.7.0 (2026-11-09)
 
 - `Schema.Melange`: a list's element is named by its place, `<list>_item`,
   as a dict's values (`_value`) and a tuple's items (`_0`) already were; it
