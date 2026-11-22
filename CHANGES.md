@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.7.1 (2026-11-22)
 
 - The wiretype package installs its documentation for agents: each page as
   Markdown and `llms.txt`, at `$(opam var wiretype:doc)`. The README's *With an
