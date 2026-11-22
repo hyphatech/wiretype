@@ -1,0 +1,53 @@
+# Getting Started
+
+JSON contracts for modern OCaml.
+
+wiretype describes a JSON shape once, or derives it from your type. That one
+value reads a document and reports every problem in it, each at its path
+with a code a client can act on; writes a value; checks the bounds it
+states; and prints itself as JSON Schema, as Zod and as Melange, so a
+server, a browser and a model's tool call read the same contract.
+
+```ocaml title="line.ml"
+type line = {
+  sku : string;
+  quantity : int; [@min 1] [@max 99]  (** how many *)
+  note : string option; [@max_length 200]
+}
+[@@deriving wiretype]
+(** A line of an order. *)
+```
+
+## Install
+
+It needs opam, with a switch of OCaml 5.5 or later.
+
+```sh
+opam repo add open-opam https://github.com/open-opam/opam-repository.git
+opam install wiretype ppx_wiretype
+```
+
+| Package | What it is |
+|---|---|
+| `wiretype` | descriptions: reading, writing, bounds, kinds, schemas; links Ptime, Mtime and Uuidm alone |
+| `ppx_wiretype` | `[@@deriving wiretype]`, which writes a type's description |
+
+A program that only writes its descriptions by hand needs `wiretype` alone.
+
+## Name it in dune
+
+A program names the libraries it uses in its `dune` file, and the deriver
+as a preprocessor:
+
+```lisp
+(executable
+ (name main)
+ (libraries wiretype)
+ (preprocess (pps ppx_wiretype)))
+```
+
+A description that names a time or a UUID -- a `Ptime.t`, an
+`Mtime.Span.t` or a `Uuidm.t` -- needs that library in `libraries` too:
+`ptime`, `mtime` or `uuidm`.
+
+The [quick start](quick-start.md) writes a first description, next.

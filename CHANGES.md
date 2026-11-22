@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The wiretype package installs its documentation for agents: each page as
+  Markdown and `llms.txt`, at `$(opam var wiretype:doc)`. The README's *With an
+  agent* gives the line for a project's `AGENTS.md` that sends an agent there.
 - wiretype is published to open-opam, `opam repo add open-opam
   https://github.com/open-opam/opam-repository.git`, and no longer to Hypha's
   opam repository.

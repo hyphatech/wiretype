@@ -1,0 +1,26 @@
+# wiretype
+
+> JSON contracts for modern OCaml.
+
+## Start here
+
+- [Getting Started](pages/index.md): JSON contracts for modern OCaml.
+- [Quick start](pages/quick-start.md)
+
+## Guides
+
+- [Descriptions by hand](pages/guide/by-hand.md)
+- [The deriver, every attribute](pages/guide/deriver.md)
+- [Reading and its problems](pages/guide/reading.md)
+- [Writing](pages/guide/writing.md)
+- [Bounds](pages/guide/bounds.md)
+- [Kinds](pages/guide/kinds.md)
+- [JSON Schema](pages/guide/json-schema.md)
+- [Zod](pages/guide/zod.md)
+- [Melange](pages/guide/melange.md)
+- [Walking a description](pages/guide/walking.md)
+- [What it does not do](pages/guide/what-it-does-not-do.md)
+
+## Reference
+
+- [Reference](pages/reference.md)

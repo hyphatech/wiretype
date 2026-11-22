@@ -61,6 +61,18 @@ note: This must be text, not a number. (unexpected_type)
 The [quick start](https://hyphatech.github.io/wiretype/quick-start/) runs it,
 and prints the same description as JSON Schema and Zod.
 
+## With an agent
+
+Each release installs its documentation for an agent with it, at
+`$(opam var wiretype:doc)`: `llms.txt`, and every page in Markdown. An agent
+reads it when your project's `AGENTS.md` tells it to:
+
+```md
+Before writing code with wiretype, read `$(opam var wiretype:doc)/llms.txt` and
+the pages it lists for the parts you need, and use those parts rather than
+writing your own.
+```
+
 ## Contributing
 
 See [AGENTS.md](AGENTS.md).

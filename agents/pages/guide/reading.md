@@ -1,0 +1,282 @@
+# Reading and its problems
+
+`Wiretype.decode` reads a document in one pass over the text, with the
+description in hand, and reports every problem the document has. It
+returns the value, or the list of problems:
+
+```ocaml
+val decode :
+  ?max_depth:int -> ?max_problems:int -> 'a t -> string -> ('a, Problem.t list) result
+```
+
+## Every problem, in one pass
+
+Each problem has its path, a code a client branches on and a sentence for a
+person:
+
+```ocaml title="order.ml"
+type item = { sku : string; count : int [@min 1] } [@@deriving wiretype]
+
+type order = {
+  id : int; [@read_only] [@default 0]
+  items : item list; [@min_items 1]
+  note : string option;
+}
+[@@deriving wiretype]
+```
+
+```ocaml title="problems.ml"
+module J = Wiretype
+
+let () =
+  match
+    J.decode Order.order_json
+      {|{"items": [{"sku": "A1", "count": 2}, {"count": 0}, {"sku": 7}]}|}
+  with
+  | Ok _ -> ()
+  | Error problems ->
+      List.iter
+        (fun (p : J.Problem.t) ->
+          Printf.printf "%s %s\n"
+            (J.Problem.path ~root:"body" p.at)
+            (J.Problem.code_to_string p.code))
+        problems
+```
+
+```console
+$ dune exec ./reading.exe
+body.items[1].count too_small
+body.items[1].sku required
+body.items[2].sku unexpected_type
+body.items[2].count required
+```
+
+A problem is `{ at; code; message }`. `Problem.path` prints `at`:
+`items[2].count`, or `body.items[2].count` with `~root:"body"`, and a map's
+name that is wrong as `scores.purple[name]`. A member's name that is empty,
+or holds anything but letters, digits, `_`, `-`, `$` and non-ASCII text, is
+written quoted as JSON -- `items["a.b"]` -- so a path is one line, and two
+are never spelt alike. `Problem.to_string` is one line for a log: where, the
+sentence, the code; `Problem.list_to_string` is every problem, as one line.
+
+## The codes
+
+| Code | What is wrong |
+|---|---|
+| `syntax` | not JSON: reported alone |
+| `too_deep` | nested past the limit: reported alone |
+| `required` | a member that must be there is not |
+| `unexpected_type` | a value of another sort: a string for a number |
+| `too_small` | below its minimum, or its type's |
+| `too_large` | above its maximum, or its type's |
+| `not_a_multiple` | not a multiple of what it must be |
+| `too_short` | a string shorter than its minimum |
+| `too_long` | a string longer than its maximum |
+| `too_few` | a list, or a map, with fewer than its minimum |
+| `too_many` | a list, or a map, with more than its maximum |
+| `unknown_word` | not one of an enum's words, or of a union's tags |
+| `unknown_member` | a member that an object which refuses unknown ones does not have |
+| `repeated_member` | a member given twice |
+| `malformed` | a value of the right sort that its description still refuses: a string a kind cannot read, or anything where the description reads nothing |
+| `too_many_problems` | more than the limit: the last of the list |
+
+A problem's code is behaviour, and changing one is a breaking change; its
+sentence is wording.
+
+## The limits
+
+Past a hundred problems, or `~max_problems`, reading stops -- what follows,
+even text that is not JSON, is not read -- and says there were more, so a
+body of a megabyte of wrong items is a short answer:
+
+```ocaml title="too_many.ml"
+module J = Wiretype
+
+let many = "[" ^ String.concat "," (List.init 5 (fun _ -> "true")) ^ "]"
+
+let () =
+  match J.decode ~max_problems:2 (J.list J.int) many with
+  | Ok _ -> ()
+  | Error problems -> print_endline (J.Problem.list_to_string problems)
+```
+
+```console
+[0]: This must be a whole number, not true or false. (unexpected_type); [1]: This must be a whole number, not true or false. (unexpected_type); the document: This has more problems than the 2 listed, and was read no further. (too_many_problems)
+```
+
+`~max_depth` is how deep the document may nest, 512 unless given and never
+more than 10,000: `[]` is nested one deep, and a limit of 0 reads a scalar
+alone. A `too_deep` problem is at the first 16 segments of its path, and
+its sentence says how many levels below. A limit below 0 is 0.
+
+## Strict where readers disagree
+
+UTF-8 is checked, and a member given twice is refused anywhere in a
+document, as I-JSON (RFC 7493 §2.3) has it: which of two members of one
+name wins is not RFC 8259's to say, and two readers that choose differently
+read two documents. JSONTestSuite runs whole on every test run.
+
+```ocaml title="strict.ml"
+module J = Wiretype
+
+let read ?max_depth text =
+  match J.decode ?max_depth Order.order_json text with
+  | Ok _ -> print_endline "read"
+  | Error problems ->
+      List.iter (fun p -> print_endline (J.Problem.to_string p)) problems
+
+let () =
+  read {|{"items": [], "items": []}|};
+  read {|{"items": [}|};
+  read ~max_depth:2 {|{"items": [[[]]]}|}
+```
+
+```console
+items: This must have at least 1 item. (too_few)
+items: This member is given more than once. (repeated_member)
+items[0]: This is not JSON: a value was expected at byte 11, and '}' was found. (syntax)
+items[0]: This is nested more than 2 deep. (too_deep)
+```
+
+Text that is not JSON, and nesting past the limit, are each that one
+problem alone.
+
+## Exact numbers
+
+A number is read from its digits by the description that wants it, so an
+`int` is exact. One written with a fraction or an exponent -- `2.0`,
+`1e3` -- is read as an integer where its digits are whole, as JSON Schema's
+`integer` is, and only below 2^53, from which a double cannot tell which
+whole number it is. A number that overflows a double is too large.
+
+## Absent and `null`, said once
+
+`opt_mem`, and an `option` field, read an absent member and `null` alike as
+`None`, since clients write both for "nothing"; `mem ~absent`, and
+`[@default e]`, give a default. A read-only member is the server's, never
+read: a request that sends one back has it skipped, and it reads as its
+default.
+
+```ocaml title="absent.ml"
+module J = Wiretype
+
+let item = {|{"sku": "A1", "count": 1}|}
+
+let read text =
+  match J.decode Order.order_json text with
+  | Ok (o : Order.order) ->
+      Printf.printf "id %d, note %s\n" o.id
+        (Option.value o.note ~default:"none")
+  | Error problems -> print_endline (J.Problem.list_to_string problems)
+
+let () =
+  read (Printf.sprintf {|{"items": [%s]}|} item);
+  read (Printf.sprintf {|{"items": [%s], "note": null}|} item);
+  read (Printf.sprintf {|{"id": 99, "items": [%s], "note": "ring"}|} item)
+```
+
+```console
+id 0, note none
+id 0, note none
+id 0, note ring
+```
+
+## Members it does not describe
+
+A member an object does not describe is skipped, and is no part of the
+value: wiretype does not keep it. `Object.error_unknown` makes it a
+problem:
+
+```ocaml title="unknown_members.ml"
+module J = Wiretype
+
+let sku_json =
+  J.Object.map Fun.id
+  |> J.Object.mem "sku" J.string
+  |> J.Object.error_unknown |> J.Object.finish
+
+let () =
+  match J.decode sku_json {|{"sku": "A1", "colour": "red"}|} with
+  | Ok _ -> ()
+  | Error problems -> print_endline (J.Problem.list_to_string problems)
+```
+
+```console
+colour: This is not a member this object has. (unknown_member)
+```
+
+## Any JSON
+
+`Wiretype.Value.json` reads any JSON as a `Value.t`, what reads what nobody
+described. A number there is a double, as I-JSON's are, and an object's
+members are in the order the document has them. `Value.find` is the member
+of a name:
+
+```ocaml title="any_json.ml"
+module J = Wiretype
+
+let () =
+  match J.decode J.Value.json {|{"sku": "A1", "count": 2}|} with
+  | Error problems -> print_endline (J.Problem.list_to_string problems)
+  | Ok value -> (
+      match J.Value.find "count" value with
+      | Some (Number n) -> Printf.printf "count %g\n" n
+      | Some _ | None -> print_endline "no count")
+```
+
+`Wiretype.of_value` reads a `Value.t` you already hold, as `decode` reads
+the JSON it is, with its limits.
+
+## A value as one text
+
+A query parameter, a path segment, a header or a form's field carries one
+text, not a JSON document. `Wiretype.of_text` reads it by the description a
+body's member is read by, with its bounds and its grammar, and
+`Wiretype.to_text` writes one back -- what a framework reading a request's
+inputs calls, as a printed client writes them:
+
+```ocaml
+val of_text : 'a t -> string -> ('a, Problem.t list) result
+val to_text : 'a t -> 'a -> (string, Unwritable.t) result
+```
+
+```ocaml title="text.ml"
+(* A value as one text -- a query parameter, a path segment, a header --
+   read and written by the description a body's member is. *)
+
+module J = Wiretype
+
+let per_page = J.int_bounded ~min:1 ~max:100 ()
+
+let show = function
+  | Ok n -> string_of_int n
+  | Error problems ->
+      String.concat "; "
+        (List.map
+           (fun (p : J.Problem.t) ->
+             J.Problem.code_to_string p.code ^ ": " ^ p.message)
+           problems)
+
+let () =
+  List.iter
+    (fun text -> print_endline (text ^ " -> " ^ show (J.of_text per_page text)))
+    [ "20"; "200"; "many" ];
+  match J.to_text J.string {|say "hi"|} with
+  | Ok text -> print_endline text
+  | Error u -> print_endline (J.Unwritable.to_string u)
+```
+
+```console
+$ dune exec ./text.exe
+20 -> 20
+200 -> too_large: This must be at most 100.
+many -> unexpected_type: This must be a whole number.
+say "hi"
+```
+
+- A scalar's text is the JSON it is written as, so a number has JSON's
+  grammar: `007`, `+3` and `.5` are none, and `1e3` is a whole number.
+- A string's text is itself, unquoted, and so is an enum's word or a kind
+  over text -- a date, a UUID, a URI.
+- Text a description cannot read is `unexpected_type`, said as what it must
+  be, never as JSON's sort, since a text has none.
